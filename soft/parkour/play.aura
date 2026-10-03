@@ -52,6 +52,14 @@
         (if (< *z* -2) (set! *z* -2))
         (if (> *z* 2) (set! *z* 2)))))
 
+; Score-owned sprint. Soft writes *vx*; the viewport only follows the snap.
+; 0–23 → 2, then +1 every 24 points, capped at 5. M0 does not use this.
+(define (parkour:pace)
+  (cond ((>= *score* 72) 5)
+        ((>= *score* 48) 4)
+        ((>= *score* 24) 3)
+        (#t 2)))
+
 ; Override integrate! for player input + lane (Soft still owns physics/score/death).
 (define (integrate!)
   (let* ((it (player-intent))
@@ -81,7 +89,7 @@
                       (set! *y* 0)
                       (set! *vy* 0)
                       (if (= *state* 1) (set! *state* 0))))))
-          (set! *vx* 2)
+          (set! *vx* (parkour:pace))
           (set! *x* (+ *x* *vx*))
           (apply-lane!)
           (set! *score* (+ *score* (touch-coins)))
