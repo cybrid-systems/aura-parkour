@@ -344,41 +344,65 @@ static void limb(Vector3 a, Vector3 b, float thick, Color color) {
     draw_mesh(mid, size, color);
 }
 
+static void draw_leg(Vector3 hip, float swing, float tuck, float ground, Color pants, Color shoe) {
+    Vector3 knee = {hip.x + swing * 0.55f, hip.y - 0.42f + fabsf(swing) * 0.08f, hip.z};
+    Vector3 foot = {hip.x - swing * 0.35f + tuck, ground, hip.z};
+    if (foot.y > knee.y - 0.05f)
+        foot.y = knee.y - 0.05f;
+    limb(hip, knee, 0.15f, pants);
+    limb(knee, foot, 0.12f, pants);
+    draw_mesh(foot, (Vector3){0.22f, 0.08f, 0.12f}, shoe);
+}
+
 static void draw_runner(const ParkourSnap *s) {
-    float x = (float)s->x + 0.15f;
+    g_tex = g_white;
+    float x = (float)s->x + 0.2f;
     float y = (float)s->y;
     float z = (float)s->z;
+    float phase = (float)s->x * 3.8f;
     float swing = 0.0f;
-    float hip = 0.95f;
-    float head = 1.62f;
-    float foot = 0.08f;
+    float hip = 0.92f;
+    float chest = 1.38f;
+    float head = 1.72f;
+    float ground = y + 0.06f;
     float tuck = 0.0f;
-    if (s->state == 2) {
-        hip = 0.38f;
+    int sliding = s->state == 2;
+    int air = s->state == 1 || s->y > 0.25;
+    if (sliding) {
+        hip = 0.32f;
+        chest = 0.48f;
         head = 0.62f;
-        foot = 0.08f;
-        tuck = 0.45f;
-    } else if (s->state == 1 || s->y > 0.25) {
-        hip = 0.85f;
-        head = 1.48f;
-        foot = 0.48f;
-        tuck = 0.22f;
-        swing = 0.18f;
+        tuck = 0.55f;
+        swing = 0.05f;
+    } else if (air) {
+        hip = 0.78f;
+        chest = 1.22f;
+        head = 1.58f;
+        ground = y + 0.42f;
+        tuck = 0.18f;
+        swing = 0.22f;
     } else {
-        swing = sinf((float)s->x * 3.3f) * 0.42f;
+        swing = sinf(phase) * 0.55f;
     }
-    Color shirt = s->state == 3 ? (Color){170, 40, 40, 255} : (Color){28, 150, 220, 255};
-    Color skin = {236, 190, 154, 255};
-    Color leg = {16, 36, 78, 255};
-    draw_mesh((Vector3){x, y + (hip + head) * 0.5f, z},
-              (Vector3){0.46f, head - hip, 0.34f}, shirt);
-    limb((Vector3){x, y + hip, z}, (Vector3){x + swing + tuck, y + foot, z - 0.22f}, 0.16f, leg);
-    limb((Vector3){x, y + hip, z}, (Vector3){x - swing + tuck, y + foot, z + 0.22f}, 0.16f, leg);
-    limb((Vector3){x, y + head - 0.35f, z},
-         (Vector3){x - swing * 0.8f, y + hip * 0.55f, z - 0.48f}, 0.12f, skin);
-    limb((Vector3){x, y + head - 0.35f, z},
-         (Vector3){x + swing * 0.8f, y + hip * 0.55f, z + 0.48f}, 0.12f, skin);
-    draw_sphere((Vector3){x, y + head, z}, 0.22f, skin);
+    float shadow = 1.0f / (1.0f + (float)s->y * 0.45f);
+    draw_mesh((Vector3){x, 0.025f, z}, (Vector3){1.15f * shadow, 0.03f, 0.62f * shadow},
+              (Color){28, 14, 12, 255});
+    Color shirt = s->state == 3 ? (Color){176, 42, 42, 255} : (Color){24, 132, 214, 255};
+    Color skin = {236, 196, 160, 255};
+    Color pants = {18, 32, 72, 255};
+    Color shoe = {230, 90, 40, 255};
+    Color hair = {40, 26, 18, 255};
+    draw_mesh((Vector3){x, y + (hip + chest) * 0.5f, z},
+              (Vector3){sliding ? 0.7f : 0.42f, chest - hip, sliding ? 0.28f : 0.30f}, shirt);
+    draw_leg((Vector3){x, y + hip, z - 0.12f}, swing, tuck, ground, pants, shoe);
+    draw_leg((Vector3){x, y + hip, z + 0.12f}, -swing, tuck, ground, pants, shoe);
+    float arm = air ? -0.35f : -swing;
+    limb((Vector3){x, y + chest - 0.08f, z - 0.16f},
+         (Vector3){x + arm * 0.7f, y + hip + 0.05f, z - 0.46f}, 0.1f, skin);
+    limb((Vector3){x, y + chest - 0.08f, z + 0.16f},
+         (Vector3){x - arm * 0.7f, y + hip + 0.05f, z + 0.46f}, 0.1f, skin);
+    draw_sphere((Vector3){x, y + head, z}, 0.2f, skin);
+    draw_mesh((Vector3){x, y + head + 0.06f, z}, (Vector3){0.28f, 0.12f, 0.26f}, hair);
 }
 
 static double iv_gap(double a0, double a1, double b0, double b1) {
