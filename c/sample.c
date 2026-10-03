@@ -45,6 +45,19 @@ static int parse_one(const char *begin, const char *end, ParkourSnap *dst) {
                        &tmp.state) != 7)
                 return 0;
             saw_player = 1;
+            tmp.alive = 1;
+            tmp.score = 0;
+            tmp.tick = 0;
+            continue;
+        }
+        /* Optional Soft SCORE line (M1+). M0 snaps may omit it. */
+        if (!saw_obs && strncmp(line, "SCORE ", 6) == 0) {
+            int sc = 0, al = 1, tk = 0;
+            if (sscanf(line, "SCORE score=%d alive=%d tick=%d", &sc, &al, &tk) != 3)
+                return 0;
+            tmp.score = sc;
+            tmp.alive = al;
+            tmp.tick = tk;
             continue;
         }
         if (!saw_obs) {
