@@ -328,15 +328,15 @@ static void kind_rgb(int kind, int *R, int *G, int *B) {
 static double face_mul(int face) {
     switch (face) {
     case FACE_NX:
-        return 1.00; /* face rushing at the camera */
+        return 1.15; /* face rushing at the camera */
     case FACE_PX:
-        return 0.40;
+        return 0.28;
     case FACE_PY:
-        return 0.88;
+        return 1.05;
     case FACE_NY:
-        return 0.42;
+        return 0.30;
     default:
-        return 0.64; /* lane sides */
+        return 0.48; /* lane sides, clearly darker than the front */
     }
 }
 
@@ -575,6 +575,9 @@ static void stamp_runner(Cell grid[][COLS], double zbuf[][COLS], const ParkourSn
             if (depth >= zbuf[r][c])
                 continue;
             zbuf[r][c] = depth;
+            /* Split legs so a slide (short) and a jump (tucked) read. */
+            if (u > 0.62 && (c == mid - 1 || c == mid))
+                continue;
             int edge = (c == mid - w || c == mid + w || r == top || r == bot);
             int R = edge ? clampi(jacket_r + 40, 0, 255) : jacket_r;
             int G = edge ? clampi(jacket_g + 30, 0, 255) : jacket_g;
