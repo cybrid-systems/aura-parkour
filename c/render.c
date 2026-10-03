@@ -86,8 +86,10 @@ int parkour_render(const ParkourSnap *s, char *dst, size_t dst_n) {
 
     size_t used = 0;
     int n = snprintf(dst, dst_n,
-                     "SOFT3D gravity=%g jump_v=%g slide_h=%g "
+                     "SOFT3D score=%d alive=%d tick=%d "
+                     "gravity=%g jump_v=%g slide_h=%g "
                      "pos=(%g,%g,%g) state=%d obs=%d\n",
+                     s->score, s->alive, s->tick,
                      s->gravity, s->jump_v, s->slide_h,
                      s->x, s->y, s->z, s->state, s->nobs);
     if (n < 0 || (size_t)n >= dst_n)

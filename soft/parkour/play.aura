@@ -1,7 +1,114 @@
 ; Interactive Soft play loop. stdin = INPUT lines from the C viewport.
 ; stdout = SNAP blocks (Soft owns score/death). C only blits + feeds keys.
+; Play-mode helpers live here so world.aura stays smoke-compatible.
 (load "/workspace/aura-parkour/soft/parkour/world.aura")
 (require "std/string" all:)
+
+(define *play* 0)
+(define *in-jump* 0)
+(define *in-slide* 0)
+(define *in-dz* 0)
+
+(define (parkour:play-mode! on)
+  (set! *play* on)
+  *play*)
+
+(define (parkour:feed! jump slide dz)
+  (set! *in-jump* jump)
+  (set! *in-slide* slide)
+  (set! *in-dz* dz)
+  (list *in-jump* *in-slide* *in-dz*))
+
+(define (parkour:reset!)
+  (set! *x* 0)
+  (set! *y* 0)
+  (set! *z* 0)
+  (set! *vx* 1)
+  (set! *vy* 0)
+  (set! *vz* 0)
+  (set! *state* 0)
+  (set! *score* 0)
+  (set! *alive* 1)
+  (set! *obs* '())
+  (set! *gen-x* 16)
+  (set! *tick* 0)
+  (set! *in-jump* 0)
+  (set! *in-slide* 0)
+  (set! *in-dz* 0)
+  (parkour:refresh!)
+  (ensure!)
+  *tick*)
+
+(define (player-intent)
+  (if (= *play* 1)
+      (cons *in-jump* *in-slide*)
+      (intent)))
+
+(define (apply-lane!)
+  (if (= *play* 1)
+      (begin
+        (set! *z* (+ *z* *in-dz*))
+        (if (< *z* -2) (set! *z* -2))
+        (if (> *z* 2) (set! *z* 2)))))
+
+; Override integrate! for player input + lane (Soft still owns physics/score/death).
+(define (integrate!)
+  (let* ((it (player-intent))
+         (do-slide (cdr it))
+         (do-jump (if (= do-slide 0) (car it) 0)))
+    (parkour:refresh!)
+    (if (= *alive* 0)
+        #f
+        (begin
+          (cond ((= do-slide 1)
+                 (set! *state* 2)
+                 (set! *vy* 0)
+                 (set! *y* 0))
+                ((and (= do-jump 1) (<= *y* 0))
+                 (set! *state* 1)
+                 (set! *vy* *jump-v*))
+                ((<= *y* 0)
+                 (set! *state* 0)
+                 (set! *vy* 0))
+                (#t (set! *state* 1)))
+          (if (or (> *y* 0) (> *vy* 0))
+              (begin
+                (set! *vy* (- *vy* *grav*))
+                (set! *y* (+ *y* *vy*))
+                (if (< *y* 0)
+                    (begin
+                      (set! *y* 0)
+                      (set! *vy* 0)
+                      (if (= *state* 1) (set! *state* 0))))))
+          (set! *vx* 1)
+          (set! *x* (+ *x* *vx*))
+          (apply-lane!)
+          (set! *score* (+ *score* (touch-coins)))
+          (if (= (lethal?) 1)
+              (begin (set! *alive* 0) (set! *state* 3))
+              (set! *score* (+ *score* 1)))))))
+
+; Snapshot always includes Soft SCORE for the C HUD.
+(define (parkour:snapshot-text)
+  (parkour:refresh!)
+  (string-append
+    "SNAP v1\n"
+    "SCALAR gravity=" (number->string *grav*)
+    " jump_v=" (number->string *jump-v*)
+    " slide_h=" (number->string *slide-h*) "\n"
+    "PLAYER x=" (number->string *x*)
+    " y=" (number->string *y*)
+    " z=" (number->string *z*)
+    " vx=" (number->string *vx*)
+    " vy=" (number->string *vy*)
+    " vz=" (number->string *vz*)
+    " state=" (number->string *state*) "\n"
+    "SCORE score=" (number->string *score*)
+    " alive=" (number->string *alive*)
+    " tick=" (number->string *tick*) "\n"
+    "OBS n=" (number->string (count *obs*)) "\n"
+    (emit-obs *obs*)
+    "END\n"))
 
 (define (nth-str xs i)
   (if (or (null? xs) (< i 0)) ""
