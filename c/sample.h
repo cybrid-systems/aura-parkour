@@ -17,12 +17,15 @@ typedef struct {
     double x, y, z;
     double vx, vy, vz;
     int state;
+    int score;
+    int alive;
+    int tick;
     int nobs;
     ParkourObs obs[PARKOUR_MAX_OBS];
     int accepted;
 } ParkourSnap;
 
 /* Last complete SNAP wins. A truncated tail does not replace it
-   and does not invent boxes. */
+   and does not invent boxes. Soft SCORE line is optional for M0 snaps. */
 int parkour_sample_parse(const char *text, size_t n, ParkourSnap *out);
 #endif
