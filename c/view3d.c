@@ -6,6 +6,7 @@
 #include "sample.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <math.h>
 #include <poll.h>
 #include <signal.h>
@@ -137,8 +138,42 @@ static int take_snap(char *dst, size_t cap, size_t *out_n) {
     return 1;
 }
 
+
+/* Keep only the newest complete SNAP so a late frame does not replay a queue. */
+static void drop_old_snaps(void) {
+    if (g_carry == NULL || g_carry_n == 0)
+        return;
+    g_carry[g_carry_n] = '\0';
+    char *last = NULL;
+    for (char *q = g_carry; q != NULL && *q != '\0';) {
+        char *e = strstr(q, "\nEND\n");
+        if (e == NULL)
+            break;
+        last = e;
+        q = e + 5;
+    }
+    if (last == NULL)
+        return;
+    char *prev = NULL;
+    for (char *q = g_carry; q < last;) {
+        char *e = strstr(q, "\nEND\n");
+        if (e == NULL || e >= last)
+            break;
+        prev = e;
+        q = e + 5;
+    }
+    if (prev == NULL)
+        return;
+    size_t drop = (size_t)(prev + 5 - g_carry);
+    size_t rest = g_carry_n - drop;
+    memmove(g_carry, prev + 5, rest);
+    g_carry_n = rest;
+    g_carry[g_carry_n] = '\0';
+}
+
 /* 0 = one snap, 1 = not yet, <0 = error. */
 static int poll_snap(int fd, char *dst, size_t cap, size_t *out_n) {
+    drop_old_snaps();
     int got = take_snap(dst, cap, out_n);
     if (got != 0)
         return got > 0 ? 0 : got;
@@ -153,9 +188,13 @@ static int poll_snap(int fd, char *dst, size_t cap, size_t *out_n) {
         return 1;
     if (g_carry_n + 2 >= SNAP_CAP)
         return -1;
-    ssize_t r = read(fd, g_carry + g_carry_n, SNAP_CAP - 1 - g_carry_n);
+    /* One frame reads at most 64KiB so a burst cannot stall the render. */
+    size_t room = SNAP_CAP - 1 - g_carry_n;
+    if (room > 65536)
+        room = 65536;
+    ssize_t r = read(fd, g_carry + g_carry_n, room);
     if (r < 0) {
-        if (errno == EINTR)
+        if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
             return 1;
         return -1;
     }
@@ -163,6 +202,7 @@ static int poll_snap(int fd, char *dst, size_t cap, size_t *out_n) {
         return -3;
     g_carry_n += (size_t)r;
     g_carry[g_carry_n] = '\0';
+    drop_old_snaps();
     got = take_snap(dst, cap, out_n);
     if (got > 0)
         return 0;
@@ -191,6 +231,9 @@ static int spawn_soft(char *const argv[], int *in_fd, int *out_fd, pid_t *pid) {
     *in_fd = to_soft[1];
     *out_fd = from_soft[0];
     *pid = child;
+    int fl = fcntl(*out_fd, F_GETFL, 0);
+    if (fl >= 0)
+        fcntl(*out_fd, F_SETFL, fl | O_NONBLOCK);
     return 0;
 }
 
@@ -261,9 +304,18 @@ static void shade_cube_faces(Mesh *mesh) {
     }
 }
 
-static void draw_mesh(Vector3 center, Vector3 size, Color color) {
+static unsigned int g_tex_bound = 0;
+
+static void bind_tex(void) {
+    if (g_tex.id == g_tex_bound)
+        return;
+    g_tex_bound = g_tex.id;
     if (g_tex.id > 0)
         g_mat.maps[MATERIAL_MAP_DIFFUSE].texture = g_tex;
+}
+
+static void draw_mesh(Vector3 center, Vector3 size, Color color) {
+    bind_tex();
     g_mat.maps[MATERIAL_MAP_DIFFUSE].color = color;
     Matrix xform = MatrixMultiply(MatrixTranslate(center.x, center.y, center.z),
                                   MatrixScale(size.x, size.y, size.z));
@@ -274,8 +326,7 @@ static void draw_mesh(Vector3 center, Vector3 size, Color color) {
 }
 
 static void draw_sphere(Vector3 center, float radius, Color color) {
-    if (g_tex.id > 0)
-        g_mat.maps[MATERIAL_MAP_DIFFUSE].texture = g_tex;
+    bind_tex();
     g_mat.maps[MATERIAL_MAP_DIFFUSE].color = color;
     Matrix xform = MatrixMultiply(MatrixTranslate(center.x, center.y, center.z),
                                   MatrixScale(radius, radius, radius));
@@ -299,7 +350,7 @@ static int gap_here(const ParkourSnap *s, float x, float z) {
 
 static void draw_corridor(const ParkourSnap *s) {
     int x0 = (int)s->x - 4;
-    int x1 = (int)s->x + 42;
+    int x1 = (int)s->x + 28;
     g_tex = g_floor_tex.id > 0 ? g_floor_tex : g_white;
     for (int x = x0; x < x1; x += 2) {
         for (int lane = -2; lane <= 2; lane += 2) {
@@ -342,7 +393,7 @@ static void draw_corridor(const ParkourSnap *s) {
             float sway = sinf((float)GetTime() * 1.6f + px) * 0.18f;
             for (int side = -1; side <= 1; side += 2) {
                 float hz = 4.05f * (float)side;
-                for (int k = 0; k < 4; k++) {
+                for (int k = 0; k < 2; k++) {
                     float t = (float)k;
                     Color leaf = (k & 1) ? (Color){64, 168, 78, 255} : (Color){36, 122, 58, 255};
                     draw_mesh((Vector3){px, 3.7f - t * 0.55f, hz + sway * t},
@@ -403,8 +454,6 @@ static void draw_corridor(const ParkourSnap *s) {
             c = (Color){32, 186, 146, 255};
         draw_mesh((Vector3){cx, cy, cz},
                   (Vector3){(float)o->w, (float)o->h, (float)o->d}, c);
-        DrawCubeWires((Vector3){cx, cy, cz}, (float)o->w + 0.02f, (float)o->h + 0.02f,
-                      (float)o->d + 0.02f, (Color){255, 244, 220, 180});
     }
 }
 
@@ -483,7 +532,6 @@ static void draw_runner(const ParkourSnap *s) {
         ground = y + 0.55f;
     } else if (!dead) {
         swing *= 0.78f;
-        bob = fabsf(sinf(phase * 2.0f)) * 0.05f;
         knee_lift = fmaxf(swing, 0.0f) * 0.08f;
     }
     float shadow = 1.0f / (1.0f + (float)s->y * 0.45f);
@@ -570,7 +618,7 @@ static void draw_dust(const ParkourSnap *s) {
     Color mote = {196, 160, 114, 255};
     Color puff = {226, 190, 140, 255};
     if (s->state == 2) {
-        int n = 14;
+        int n = 8;
         for (int i = 0; i < n; i++) {
             float t = (float)i / (float)(n - 1);
             float drift = sinf((float)GetTime() * 9.0f + (float)i) * 0.22f;
@@ -579,9 +627,8 @@ static void draw_dust(const ParkourSnap *s) {
         }
     } else if (s->y < 0.2f) {
         float phase = (float)s->x * 3.8f;
-        int n = 8 + (int)spd;
-        if (n > 18)
-            n = 18;
+        int n = 5;
+        (void)spd;
         for (int i = 0; i < n; i++) {
             float k = (float)i;
             float hop = fmaxf(0.0f, sinf(phase - k * 0.55f));
@@ -593,7 +640,7 @@ static void draw_dust(const ParkourSnap *s) {
     }
     if (land > 0) {
         float spread = (22 - land) * 0.16f + 0.28f;
-        int n = 14;
+        int n = 8;
         for (int i = 0; i < n; i++) {
             float ang = (float)i / (float)n * 6.28318f;
             float lift = 0.08f + spread * 0.35f * ((i % 3 == 0) ? 1.4f : 0.7f);
@@ -660,31 +707,27 @@ static void draw_hud(const ParkourSnap *s, int paused, int miss, int burst) {
 }
 
 static Camera3D chase_cam(const ParkourSnap *s) {
-    static float lag_z = 0.0f;
-    float bob = 0.0f;
-    if (s->state == 0)
-        bob = sinf((float)s->x * 2.4f) * 0.06f;
-    /* Higher and further back, looking slightly down the lane. */
-    float eye_y = (float)s->y + (s->state == 2 ? 1.85f : 3.65f) + bob;
-    float fov = 50.0f + (float)s->vx * 5.0f;
-    if (fov > 98.0f)
-        fov = 98.0f;
-    int miss = near_miss(s);
-    float shake = 0.0f;
-    if (miss) {
-        fov += 8.0f;
-        shake = sinf((float)GetTime() * 48.0f) * 0.1f;
-    }
+    static float cam_z = 0.0f;
+    static int cam_init = 0;
     float z = (float)s->z;
-    lag_z += (z - lag_z) * 0.16f;
-    float roll = (lag_z - z) * 0.28f;
-    if (roll > 0.22f)
-        roll = 0.22f;
-    if (roll < -0.22f)
-        roll = -0.22f;
+    if (!cam_init) {
+        cam_z = z;
+        cam_init = 1;
+    }
+    /* Lane follow is slow on purpose. No bob, shake, or FOV kick. */
+    cam_z += (z - cam_z) * 0.06f;
+    float eye_y = (float)s->y + (s->state == 2 ? 1.85f : 3.55f);
+    float fov = 52.0f + (float)s->vx * 1.1f;
+    if (fov > 62.0f)
+        fov = 62.0f;
+    float roll = (cam_z - z) * 0.03f;
+    if (roll > 0.035f)
+        roll = 0.035f;
+    if (roll < -0.035f)
+        roll = -0.035f;
     Camera3D cam = {0};
-    cam.position = (Vector3){(float)s->x - 7.8f, eye_y + shake, z * 0.82f + shake * 0.5f};
-    cam.target = (Vector3){(float)s->x + 10.0f, (float)s->y + 0.85f + shake * 0.25f, z};
+    cam.position = (Vector3){(float)s->x - 7.8f, eye_y, cam_z};
+    cam.target = (Vector3){(float)s->x + 10.0f, (float)s->y + 0.9f, cam_z};
     cam.up = (Vector3){sinf(roll), cosf(roll), 0.0f};
     cam.fovy = fov;
     cam.projection = CAMERA_PERSPECTIVE;
@@ -729,46 +772,11 @@ static void draw_world(const ParkourSnap *s, int burst, Camera3D cam) {
     EndMode3D();
 }
 
-static RenderTexture2D g_frame;
-static RenderTexture2D g_prev;
-static int g_blur_ready = 0;
-static int g_have_prev = 0;
-
-static void blit_rt(RenderTexture2D rt, Rectangle dest, Color tint) {
-    Rectangle src = {0.0f, 0.0f, (float)rt.texture.width, -(float)rt.texture.height};
-    DrawTexturePro(rt.texture, src, dest, (Vector2){0.0f, 0.0f}, 0.0f, tint);
-}
-
 static void paint(const ParkourSnap *s, int paused, int burst) {
     Camera3D cam = chase_cam(s);
     if (g_lit && g_view_loc >= 0) {
         float view[3] = {cam.position.x, cam.position.y, cam.position.z};
         SetShaderValue(g_shader, g_view_loc, view, SHADER_UNIFORM_VEC3);
-    }
-    float w = (float)GetScreenWidth();
-    float h = (float)GetScreenHeight();
-    if (g_blur_ready && w > 1.0f && h > 1.0f) {
-        BeginTextureMode(g_frame);
-        draw_sky();
-        draw_world(s, burst, cam);
-        EndTextureMode();
-        BeginDrawing();
-        if (g_have_prev) {
-            /* Previous frame, nudged out, then the new frame mostly covers it. */
-            blit_rt(g_prev, (Rectangle){-12.0f, -12.0f, w + 24.0f, h + 24.0f}, WHITE);
-            blit_rt(g_frame, (Rectangle){0.0f, 0.0f, w, h}, (Color){255, 255, 255, 196});
-        } else {
-            blit_rt(g_frame, (Rectangle){0.0f, 0.0f, w, h}, WHITE);
-        }
-        draw_hud(s, paused, near_miss(s), burst);
-        DrawFPS(GetScreenWidth() - 90, 14);
-        EndDrawing();
-        BeginTextureMode(g_prev);
-        blit_rt(g_frame, (Rectangle){0.0f, 0.0f, (float)g_prev.texture.width, (float)g_prev.texture.height},
-                WHITE);
-        EndTextureMode();
-        g_have_prev = 1;
-        return;
     }
     BeginDrawing();
     draw_sky();
@@ -937,7 +945,7 @@ int main(int argc, char **argv) {
     if (g_carry == NULL || snapbuf == NULL)
         return 1;
 
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIGHDPI);
+    SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
     InitWindow(1280, 720, "aura-parkour");
     if (!IsWindowReady()) {
         fprintf(stderr, "parkour_view: no display (run from a Mac GUI session, or use the ANSI fallback)\n");
@@ -977,13 +985,10 @@ int main(int argc, char **argv) {
     g_tex = g_white;
     g_cube = GenMeshCube(1.0f, 1.0f, 1.0f);
     shade_cube_faces(&g_cube);
-    g_sphere = GenMeshSphere(1.0f, 16, 12);
+    g_sphere = GenMeshSphere(1.0f, 8, 6);
     g_mat = LoadMaterialDefault();
     if (g_lit)
         g_mat.shader = g_shader;
-    g_frame = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
-    g_prev = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
-    g_blur_ready = g_frame.id != 0 && g_prev.id != 0;
 
     ParkourSnap from, to, view;
     memset(&from, 0, sizeof(from));
@@ -1020,12 +1025,15 @@ int main(int argc, char **argv) {
     }
 
     float alpha = 1.0f;
+    float glide = 0.12f;
+    uint64_t sent_ns = 0;
     int awaiting = 0;
     int latch_jump = 0, latch_slide = 0, latch_dz = 0, latch_restart = 0, paused = 0;
     int coin_burst = 0;
     int quit = 0;
     while (!WindowShouldClose() && !g_stop && !quit) {
         int jump = 0, slide = 0, dz = 0, restart = 0, pt = 0, q = 0;
+        int got = 0;
         if (!g_smoke)
             latch_keys(&jump, &slide, &dz, &q, &restart, &pt);
         if (pt)
@@ -1046,24 +1054,9 @@ int main(int argc, char **argv) {
             float dt = GetFrameTime();
             if (dt < 0.001f)
                 dt = 1.0f / 60.0f;
-            if (!awaiting && alpha < 1.0f) {
-                alpha += dt / 0.096f;
-                if (alpha > 1.0f)
-                    alpha = 1.0f;
-            }
-            if (!awaiting && alpha >= 1.0f) {
-                if (g_smoke)
-                    smoke_latch(&latch_jump, &latch_slide, &latch_dz, &quit);
-                char line[80];
-                int n = snprintf(line, sizeof(line), "INPUT %d %d %d %d %d\n", latch_jump, latch_slide,
-                                 latch_dz, quit ? 1 : 0, latch_restart);
-                latch_jump = latch_slide = latch_dz = latch_restart = 0;
-                if (write_all(soft_in, line, (size_t)n) != 0)
-                    break;
-                if (quit)
-                    break;
-                awaiting = 1;
-            }
+            if (dt > 0.05f)
+                dt = 0.05f;
+            /* Soft works during the glide. Render never waits on the pipe. */
             if (awaiting) {
                 size_t n = 0;
                 int rs = poll_snap(soft_out, snapbuf, SNAP_CAP, &n);
@@ -1074,10 +1067,20 @@ int main(int argc, char **argv) {
                         fprintf(stderr, "parkour_view: Soft SNAP parse failed\n");
                         break;
                     }
+                    if (sent_ns != 0) {
+                        double sec = (double)(parkour_clock_ns() - sent_ns) / 1e9;
+                        if (sec >= 0.04 && sec <= 0.8)
+                            glide = glide * 0.65f + (float)sec * 0.35f;
+                    }
+                    if (glide < 0.08f)
+                        glide = 0.08f;
+                    if (glide > 0.40f)
+                        glide = 0.40f;
                     from = to;
                     to = next;
                     alpha = 0.0f;
                     awaiting = 0;
+                    got = 1;
                     if (to.score - from.score >= 5)
                         coin_burst = 28;
                     log_snap(&to);
@@ -1088,8 +1091,27 @@ int main(int argc, char **argv) {
                     break;
                 }
             }
+            if (!awaiting && (got || alpha >= 1.0f) && to.alive != 0) {
+                if (g_smoke)
+                    smoke_latch(&latch_jump, &latch_slide, &latch_dz, &quit);
+                char line[80];
+                int n = snprintf(line, sizeof(line), "INPUT %d %d %d %d %d\n", latch_jump, latch_slide,
+                                 latch_dz, quit ? 1 : 0, latch_restart);
+                latch_jump = latch_slide = latch_dz = latch_restart = 0;
+                if (write_all(soft_in, line, (size_t)n) != 0)
+                    break;
+                sent_ns = parkour_clock_ns();
+                if (quit)
+                    break;
+                awaiting = 1;
+            }
+            if (alpha < 1.0f) {
+                alpha += dt / glide;
+                if (alpha > 1.0f)
+                    alpha = 1.0f;
+            }
         }
-        parkour_present(&view, &from, &to, awaiting || frozen ? 1.0 : alpha);
+        parkour_present(&view, &from, &to, alpha);
         paint(&view, paused, coin_burst);
         if (coin_burst > 0)
             coin_burst--;
