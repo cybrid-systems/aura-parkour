@@ -81,7 +81,7 @@
                       (set! *y* 0)
                       (set! *vy* 0)
                       (if (= *state* 1) (set! *state* 0))))))
-          (set! *vx* 1)
+          (set! *vx* 2)
           (set! *x* (+ *x* *vx*))
           (apply-lane!)
           (set! *score* (+ *score* (touch-coins)))
