@@ -13,7 +13,7 @@
   "(lambda (ctx) (cond ((equal? ctx \"jump\") 5) ((equal? ctx \"slide\") 1) (#t 4)))")
 (define *gap-body* "(lambda (ctx) 3)")
 (define *chunk-body*
-  "(lambda (origin) (let ((gw (gap origin))) (if (>= origin 96) (list (+ origin 16) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 1 (+ origin 8) 1 -2 2 1 4 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 3 (+ origin 11) 0 2 2 1 2 0) (list 4 (+ origin 12) 1 -2 2 1 2 0) (list 0 (+ origin 14) 0 -2 gw 1 1 0))) (list (+ origin 20) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 4 (+ origin 11) 1 2 2 1 2 0) (list 1 (+ origin 13) 1 -2 2 1 4 0) (list 3 (+ origin 15) 0 -2 2 1 2 0) (list 0 (+ origin 17) 0 -2 gw 1 1 0))))))")
+  "(lambda (origin) (let ((gw (gap origin))) (if (>= origin 96) (list (+ origin 16) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 1 (+ origin 8) 1 -2 2 1 5 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 3 (+ origin 11) 0 2 2 1 2 0) (list 4 (+ origin 12) 1 -2 2 1 2 0) (list 0 (+ origin 14) 0 -2 gw 1 1 0))) (list (+ origin 20) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 4 (+ origin 11) 1 2 2 1 2 0) (list 1 (+ origin 13) 1 -2 2 1 5 0) (list 3 (+ origin 15) 0 -2 2 1 2 0) (list 0 (+ origin 17) 0 -2 gw 1 1 0))))))")
 
 (define *x* 0)
 (define *y* 0)
@@ -51,7 +51,7 @@
   (string-append
     "(define (gravity ctx) (cond ((equal? ctx \"jump\") 6) ((equal? ctx \"slide\") 1) (#t 3)))\n"
     "(define (gap ctx) 3)\n"
-    "(define (chunk-grammar origin) (let ((gw (gap origin))) (if (>= origin 96) (list (+ origin 16) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 1 (+ origin 8) 1 -2 2 1 4 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 3 (+ origin 11) 0 2 2 1 2 0) (list 4 (+ origin 12) 1 -2 2 1 2 0) (list 0 (+ origin 14) 0 -2 gw 1 1 0))) (list (+ origin 20) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 4 (+ origin 11) 1 2 2 1 2 0) (list 1 (+ origin 13) 1 -2 2 1 4 0) (list 3 (+ origin 15) 0 -2 2 1 2 0) (list 0 (+ origin 17) 0 -2 gw 1 1 0))))))\n"))
+    "(define (chunk-grammar origin) (let ((gw (gap origin))) (if (>= origin 96) (list (+ origin 16) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 1 (+ origin 8) 1 -2 2 1 5 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 3 (+ origin 11) 0 2 2 1 2 0) (list 4 (+ origin 12) 1 -2 2 1 2 0) (list 0 (+ origin 14) 0 -2 gw 1 1 0))) (list (+ origin 20) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 4 (+ origin 11) 1 2 2 1 2 0) (list 1 (+ origin 13) 1 -2 2 1 5 0) (list 3 (+ origin 15) 0 -2 2 1 2 0) (list 0 (+ origin 17) 0 -2 gw 1 1 0))))))\n"))
 
 (define (parkour:seed!)
   (let ((sc (try (set-code (seed-src)) (catch (e) e))))
@@ -87,8 +87,36 @@
        (> (+ *y* (body-h)) (nth ob 2))))
 
 ; Blocks and beams are swept across the step. At vx 7-8 a width-2 solid
-; sits between samples and a point test misses it. Gaps stay point-sampled:
-; a jump that lands past a pit must not die for the air under the arc.
+; sits between samples and a point test misses it.
+; Gaps use the grounded part of the step only. A run that crosses a pit dies
+; even when the sample lands past it. A jump dies only if the takeoff foot or
+; the landing foot is in the pit, not for the air under the arc.
+(define *pose-x* 0)
+(define *pose-y* 0)
+
+(define (remember-pose!)
+  (set! *pose-x* *x*)
+  (set! *pose-y* *y*))
+
+(define (z-in? ob)
+  (and (>= *z* (nth ob 3)) (< *z* (+ (nth ob 3) (nth ob 6)))))
+
+(define (x-in? x ob)
+  (and (>= x (nth ob 1)) (< x (+ (nth ob 1) (nth ob 4)))))
+
+(define (x-cross? ob)
+  (let ((x0 (nth ob 1))
+        (x1 (+ (nth ob 1) (nth ob 4)))
+        (a *pose-x*)
+        (b *x*))
+    (and (< a x1) (>= b x0))))
+
+(define (gap-fall? ob)
+  (and (z-in? ob)
+       (cond ((and (<= *pose-y* 0) (<= *y* 0)) (x-cross? ob))
+             ((and (<= *pose-y* 0) (> *y* 0)) (x-in? *pose-x* ob))
+             ((and (> *pose-y* 0) (<= *y* 0)) (x-in? *x* ob))
+             (#t #f))))
 (define (x-span? ob)
   (let ((x0 (nth ob 1))
         (x1 (+ (nth ob 1) (nth ob 4)))
@@ -143,7 +171,7 @@
     (if (null? xs) 0
         (let ((ob (car xs)))
           (let ((k (nth ob 0)))
-            (cond ((and (= k 0) (xz-hit? ob) (<= *y* 0)) 1)
+            (cond ((and (= k 0) (gap-fall? ob)) 1)
                   ((and (= k 2) (vol-sweep? ob)) 1)
                   ((and (= k 1) (not (= *state* 2)) (vol-sweep? ob)) 1)
                   (#t (loop (cdr xs)))))))))
@@ -177,6 +205,7 @@
     (if (= *alive* 0)
         #f
         (begin
+          (remember-pose!)
           (cond ((= do-slide 1)
                  (set! *state* 2)
                  (set! *vy* 0)
