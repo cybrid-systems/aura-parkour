@@ -59,9 +59,11 @@ static const char *FS = "#version 330\n"
                          "  float rim = pow(1.0 - max(dot(n, normalize(viewPos - fragPosition)), 0.0), 2.0);\n"
                          "  vec3 texel = texture(texture0, fragTexCoord).rgb;\n"
                          "  vec3 base = colDiffuse.rgb * fragColor.rgb * texel;\n"
-                         "  vec3 sky = vec3(0.55, 0.28, 0.22);\n"
+                         "  vec3 sky = vec3(0.62, 0.36, 0.28);\n"
                          "  vec3 warm = vec3(1.0, 0.62, 0.32);\n"
-                         "  vec3 lit = base * (sky * 0.42 + warm * diff) + warm * rim * 0.08;\n"
+                         "  vec3 fillDir = normalize(vec3(0.35, 0.55, -0.4));\n"
+                         "  float fill = max(dot(n, fillDir), 0.0);\n"
+                         "  vec3 lit = base * (sky * 0.62 + warm * diff + vec3(0.90, 0.74, 0.58) * fill * 0.34) + warm * rim * 0.08;\n"
                          "  float dist = length(viewPos - fragPosition);\n"
                          "  float fog = clamp((dist - 5.0) / 28.0, 0.0, 1.0);\n"
                          "  vec3 fogCol = vec3(0.62, 0.30, 0.22);\n"
@@ -211,9 +213,12 @@ static Texture2D make_floor(void) {
             int alt = (gx + gy) & 1;
             Color tile = alt ? (Color){156, 128, 94, 255} : (Color){102, 82, 60, 255};
             ImageDrawRectangle(&img, gx * 32 + 2, gy * 32 + 2, 28, 28, tile);
+            ImageDrawRectangle(&img, gx * 32 + 2, gy * 32 + 2, 28, 3, (Color){214, 184, 142, 255});
             ImageDrawRectangle(&img, gx * 32 + 5, gy * 32 + 6, 10, 4, (Color){188, 160, 120, 255});
             ImageDrawRectangle(&img, gx * 32 + 18, gy * 32 + 16, 6, 6,
                                alt ? (Color){120, 96, 70, 255} : (Color){70, 56, 42, 255});
+            if (((gx * 3 + gy) % 5) == 0)
+                ImageDrawRectangle(&img, gx * 32 + 8, gy * 32 + 20, 16, 2, (Color){62, 46, 34, 255});
         }
     }
     return finish_tex(img);
@@ -711,7 +716,7 @@ static void latch_keys(int *jump, int *slide, int *dz, int *quit, int *restart, 
         *dz = -1;
     if (IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT))
         *dz = 1;
-    /* One lane per press. A long drag or a horizontal scroll counts as a swipe. */
+    /* One lane per press. Soft turns ±1 into a full step on -2, 0, 2. */
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         g_drag_on = 1;
         g_drag_x = 0.0f;
