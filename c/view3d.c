@@ -205,28 +205,54 @@ static Texture2D make_white(void) {
 }
 
 static Texture2D make_floor(void) {
-    Image img = GenImageColor(128, 128, (Color){48, 38, 30, 255});
-    for (int gy = 0; gy < 4; gy++) {
-        for (int gx = 0; gx < 4; gx++) {
-            Color tile = ((gx + gy) & 1) ? (Color){148, 122, 90, 255} : (Color){96, 78, 58, 255};
+    Image img = GenImageColor(256, 256, (Color){42, 34, 28, 255});
+    for (int gy = 0; gy < 8; gy++) {
+        for (int gx = 0; gx < 8; gx++) {
+            int alt = (gx + gy) & 1;
+            Color tile = alt ? (Color){156, 128, 94, 255} : (Color){102, 82, 60, 255};
             ImageDrawRectangle(&img, gx * 32 + 2, gy * 32 + 2, 28, 28, tile);
-            ImageDrawRectangle(&img, gx * 32 + 6, gy * 32 + 8, 8, 3, (Color){170, 146, 110, 255});
+            ImageDrawRectangle(&img, gx * 32 + 5, gy * 32 + 6, 10, 4, (Color){188, 160, 120, 255});
+            ImageDrawRectangle(&img, gx * 32 + 18, gy * 32 + 16, 6, 6,
+                               alt ? (Color){120, 96, 70, 255} : (Color){70, 56, 42, 255});
         }
     }
     return finish_tex(img);
 }
 
 static Texture2D make_wall(void) {
-    Image img = GenImageColor(128, 64, (Color){62, 42, 36, 255});
-    for (int row = 0; row < 4; row++) {
+    Image img = GenImageColor(256, 128, (Color){54, 36, 32, 255});
+    for (int row = 0; row < 8; row++) {
         int off = (row & 1) ? 16 : 0;
-        for (int bx = -1; bx < 5; bx++) {
-            Color brick = (row & 1) ? (Color){168, 92, 64, 255} : (Color){142, 74, 54, 255};
+        for (int bx = -1; bx < 9; bx++) {
+            Color brick = ((row + bx) & 1) ? (Color){176, 96, 68, 255} : (Color){146, 72, 52, 255};
             ImageDrawRectangle(&img, bx * 32 + off + 1, row * 16 + 1, 30, 14, brick);
-            ImageDrawRectangle(&img, bx * 32 + off + 4, row * 16 + 3, 8, 3, (Color){190, 120, 88, 255});
+            ImageDrawRectangle(&img, bx * 32 + off + 4, row * 16 + 3, 9, 3, (Color){204, 132, 96, 255});
+            ImageDrawRectangle(&img, bx * 32 + off + 18, row * 16 + 8, 5, 3, (Color){110, 58, 44, 255});
         }
     }
     return finish_tex(img);
+}
+
+/* Top faces bright, sides mid, bottoms dark. Multiplies with the sunset light. */
+static void shade_cube_faces(Mesh *mesh) {
+    if (mesh->normals == NULL || mesh->vertexCount <= 0)
+        return;
+    if (mesh->colors == NULL)
+        mesh->colors = calloc((size_t)mesh->vertexCount * 4, 1);
+    if (mesh->colors == NULL)
+        return;
+    for (int i = 0; i < mesh->vertexCount; i++) {
+        float ny = mesh->normals[i * 3 + 1];
+        unsigned char v = 188;
+        if (ny > 0.45f)
+            v = 255;
+        else if (ny < -0.45f)
+            v = 110;
+        mesh->colors[i * 4 + 0] = v;
+        mesh->colors[i * 4 + 1] = v;
+        mesh->colors[i * 4 + 2] = v;
+        mesh->colors[i * 4 + 3] = 255;
+    }
 }
 
 static void draw_mesh(Vector3 center, Vector3 size, Color color) {
@@ -715,6 +741,7 @@ int main(int argc, char **argv) {
     g_wall_tex = make_wall();
     g_tex = g_white;
     g_cube = GenMeshCube(1.0f, 1.0f, 1.0f);
+    shade_cube_faces(&g_cube);
     g_sphere = GenMeshSphere(1.0f, 16, 12);
     g_mat = LoadMaterialDefault();
     if (g_lit)
