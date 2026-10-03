@@ -101,6 +101,105 @@ static int read_snap(int fd, char *buf, size_t cap, size_t *out_n) {
     }
 }
 
+
+enum { FRAME_MS = 33, GLIDE_MS = 96 };
+
+static char *g_carry;
+static size_t g_carry_n;
+
+static int take_snap(char *dst, size_t cap, size_t *out_n) {
+    if (g_carry == NULL || g_carry_n == 0)
+        return 0;
+    g_carry[g_carry_n] = '\0';
+    char *end = strstr(g_carry, "\nEND\n");
+    if (end == NULL)
+        return 0;
+    char *snap = NULL;
+    for (char *q = g_carry; q + 7 <= end; q++) {
+        if (memcmp(q, "SNAP v1", 7) == 0 && (q == g_carry || q[-1] == '\n'))
+            snap = q;
+    }
+    if (snap == NULL)
+        return 0;
+    size_t keep = (size_t)(end + 5 - snap);
+    if (keep + 1 > cap)
+        return -1;
+    memcpy(dst, snap, keep);
+    dst[keep] = '\0';
+    *out_n = keep;
+    size_t rest = g_carry_n - (size_t)(end + 5 - g_carry);
+    memmove(g_carry, end + 5, rest);
+    g_carry_n = rest;
+    g_carry[g_carry_n] = '\0';
+    return 1;
+}
+
+/* 0 = one snap extracted, 1 = not ready yet, <0 = error. */
+static int poll_snap(int fd, char *dst, size_t cap, size_t *out_n) {
+    int got = take_snap(dst, cap, out_n);
+    if (got != 0)
+        return got > 0 ? 0 : got;
+    struct pollfd p = {.fd = fd, .events = POLLIN};
+    int pr = poll(&p, 1, 0);
+    if (pr < 0) {
+        if (errno == EINTR)
+            return 1;
+        return -1;
+    }
+    if (pr == 0)
+        return 1;
+    if (g_carry_n + 2 >= SNAP_CAP)
+        return -1;
+    ssize_t r = read(fd, g_carry + g_carry_n, SNAP_CAP - 1 - g_carry_n);
+    if (r < 0) {
+        if (errno == EINTR)
+            return 1;
+        return -1;
+    }
+    if (r == 0)
+        return -3;
+    g_carry_n += (size_t)r;
+    g_carry[g_carry_n] = '\0';
+    got = take_snap(dst, cap, out_n);
+    if (got > 0)
+        return 0;
+    return got == 0 ? 1 : got;
+}
+
+static double smoothstep(double t) {
+    if (t < 0.0)
+        t = 0.0;
+    if (t > 1.0)
+        t = 1.0;
+    return t * t * (3.0 - 2.0 * t);
+}
+
+/* Display-only blend. Obstacles stay on the authoritative `to` snap.
+   A rewind or a big jump (restart) snaps instead of gliding. */
+static void present_snap(ParkourSnap *out, const ParkourSnap *a, const ParkourSnap *b,
+                         double t) {
+    *out = *b;
+    double dx = b->x - a->x;
+    if (dx < 0.0)
+        dx = -dx;
+    if (dx > 8.0 || b->tick < a->tick)
+        return;
+    double s = smoothstep(t);
+    out->x = a->x + (b->x - a->x) * s;
+    out->y = a->y + (b->y - a->y) * s;
+    out->z = a->z + (b->z - a->z) * s;
+}
+
+static void pace_frame(uint64_t start_ns) {
+    uint64_t now = parkour_clock_ns();
+    uint64_t budget = (uint64_t)FRAME_MS * 1000000ull;
+    if (now - start_ns >= budget)
+        return;
+    int ms = (int)((budget - (now - start_ns)) / 1000000ull);
+    if (ms > 0)
+        sleep_ms(ms);
+}
+
 static int spawn_soft(char *const argv[], int *in_fd, int *out_fd, pid_t *pid) {
     int to_soft[2], from_soft[2];
     if (pipe(to_soft) != 0 || pipe(from_soft) != 0)
@@ -271,13 +370,37 @@ int main(int argc, char **argv) {
             blit_hud(tty, &snap, frame, 0);
     }
 
+    g_carry = malloc(SNAP_CAP);
+    if (g_carry == NULL) {
+        fprintf(stderr, "parkour_play: oom\n");
+        free(snapbuf);
+        free(frame);
+        return 1;
+    }
+    g_carry_n = 0;
+
+    ParkourSnap from = snap;
+    ParkourSnap to = snap;
+    ParkourSnap view;
+    double alpha = 1.0;
+    int awaiting = 0;
+    int latch_jump = 0, latch_slide = 0, latch_dz = 0, latch_restart = 0;
     int paused = 0;
     while (!g_stop) {
+        uint64_t frame_t = parkour_clock_ns();
         int jump = 0, slide = 0, dz = 0, quit = 0, restart = 0, pt = 0;
         drain_keys(tty >= 0 ? tty : STDIN_FILENO, &jump, &slide, &dz, &quit,
                    &restart, &pt);
         if (pt)
             paused = !paused;
+        if (jump)
+            latch_jump = 1;
+        if (slide)
+            latch_slide = 1;
+        if (dz)
+            latch_dz = dz;
+        if (restart)
+            latch_restart = 1;
         if (quit) {
             char line[64];
             int n = snprintf(line, sizeof(line), "INPUT 0 0 0 1 0\n");
@@ -285,45 +408,59 @@ int main(int argc, char **argv) {
             break;
         }
 
-        if (paused && !restart) {
-            blit_hud(tty, &snap, frame, 1);
-            sleep_ms(50);
+        if ((paused && !latch_restart) ||
+            (to.accepted && to.alive == 0 && !latch_restart)) {
+            present_snap(&view, &from, &to, alpha);
+            if (parkour_render(&view, frame, FRAME_CAP) >= 0)
+                blit_hud(tty, &to, frame, paused);
+            pace_frame(frame_t);
             continue;
         }
 
-        /* While dead, only restart/quit advance Soft. */
-        if (snap.accepted && snap.alive == 0 && !restart) {
-            blit_hud(tty, &snap, frame, 0);
-            sleep_ms(50);
-            continue;
+        /* Advance the glide first so a snap that lands this frame is shown at t=0. */
+        if (!awaiting && alpha < 1.0) {
+            alpha += (double)FRAME_MS / (double)GLIDE_MS;
+            if (alpha > 1.0)
+                alpha = 1.0;
         }
-
-        char line[80];
-        int n = snprintf(line, sizeof(line), "INPUT %d %d %d 0 %d\n", jump, slide,
-                         dz, restart);
-        if (write_all(soft_in, line, (size_t)n) != 0) {
-            fprintf(stderr, "parkour_play: Soft stdin closed\n");
-            break;
+        /* Glide across the last authoritative step, then ask Soft for the next. */
+        if (!awaiting && alpha >= 1.0) {
+            char line[80];
+            int n = snprintf(line, sizeof(line), "INPUT %d %d %d 0 %d\n", latch_jump,
+                             latch_slide, latch_dz, latch_restart);
+            latch_jump = latch_slide = latch_dz = latch_restart = 0;
+            if (write_all(soft_in, line, (size_t)n) != 0) {
+                fprintf(stderr, "parkour_play: Soft stdin closed\n");
+                break;
+            }
+            awaiting = 1;
         }
-
-        int rs = read_snap(soft_out, snapbuf, SNAP_CAP, &snap_n);
-        if (rs != 0) {
-            fprintf(stderr, "parkour_play: Soft SNAP read failed (%d)\n", rs);
-            break;
+        if (awaiting) {
+            int rs = poll_snap(soft_out, snapbuf, SNAP_CAP, &snap_n);
+            if (rs == 0) {
+                ParkourSnap next;
+                memset(&next, 0, sizeof(next));
+                if (!parkour_sample_parse(snapbuf, snap_n, &next) || !next.accepted) {
+                    fprintf(stderr, "parkour_play: Soft SNAP parse failed\n");
+                    break;
+                }
+                from = to;
+                to = next;
+                snap = next;
+                alpha = 0.0;
+                awaiting = 0;
+            } else if (rs < 0) {
+                fprintf(stderr, "parkour_play: Soft SNAP read failed (%d)\n", rs);
+                break;
+            }
         }
-        if (!parkour_sample_parse(snapbuf, snap_n, &snap) || !snap.accepted) {
-            fprintf(stderr, "parkour_play: Soft SNAP parse failed\n");
-            break;
-        }
-        if (parkour_render(&snap, frame, FRAME_CAP) < 0) {
+        present_snap(&view, &from, &to, awaiting ? 1.0 : alpha);
+        if (parkour_render(&view, frame, FRAME_CAP) < 0) {
             fprintf(stderr, "parkour_play: render failed\n");
             break;
         }
-        blit_hud(tty, &snap, frame, 0);
-
-        /* Soft is usually the pacing bottleneck; small yield keeps keys snappy. */
-        (void)parkour_clock_ns();
-        sleep_ms(30);
+        blit_hud(tty, &to, frame, 0);
+        pace_frame(frame_t);
     }
 
     if (raw_on)
@@ -339,5 +476,6 @@ int main(int argc, char **argv) {
     }
     free(snapbuf);
     free(frame);
+    free(g_carry);
     return 0;
 }

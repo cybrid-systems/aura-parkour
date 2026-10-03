@@ -1,6 +1,7 @@
 #include "render.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -76,14 +77,14 @@ static void cam_build(const ParkourSnap *s, Cam *c) {
     } else {
         target = s->y + 2.05;
         pitch = 0.40;
-        bob = 0.08 * sin((double)s->tick * 1.35);
+        bob = 0.07 * sin(s->x * 2.4);
     }
     if (!primed || s->tick < last_tick || fabs(s->z - sz) > 3.0) {
         sz = s->z;
         sy = target;
         primed = 1;
     } else {
-        sz += (s->z - sz) * 0.80;
+        sz += (s->z - sz) * 0.92;
         sy += (target - sy) * 0.42;
     }
     last_tick = s->tick;
@@ -550,77 +551,77 @@ static void stamp_disc(Cell grid[][COLS], double zbuf[][COLS], int cr, int cc,
     }
 }
 
-/* Viewport avatar. Not a Soft body and not an '@' map marker.
-   Screen position comes from projecting the player, so jump lifts it,
-   slide squashes it, and the lane shift stays locked under the camera. */
+/* Viewport avatar. Not a Soft body and not an '@' map marker. */
+static void limb(Cell grid[][COLS], double zbuf[][COLS], const Cam *cam,
+                 double x0, double y0, double z0, double x1, double y1, double z1,
+                 int rad, int R, int G, int B) {
+    int c0, r0, c1, r1;
+    double d0, d1;
+    if (!project(cam, x0, y0, z0, &c0, &r0, &d0))
+        return;
+    if (!project(cam, x1, y1, z1, &c1, &r1, &d1))
+        return;
+    int steps = abs(c1 - c0);
+    if (abs(r1 - r0) > steps)
+        steps = abs(r1 - r0);
+    if (steps < 1)
+        steps = 1;
+    if (steps > 48)
+        steps = 48;
+    /* Overlay the body. A world-depth test hides feet in the near floor. */
+    double depth = 0.02;
+    (void)d0;
+    (void)d1;
+    for (int i = 0; i <= steps; i++) {
+        int c = c0 + (c1 - c0) * i / steps;
+        int r = r0 + (r1 - r0) * i / steps;
+        stamp_disc(grid, zbuf, r, c, rad, rad + 1, depth, ' ', R, G, B);
+    }
+}
+
 static void stamp_runner(Cell grid[][COLS], double zbuf[][COLS], const ParkourSnap *s,
                          const Cam *cam) {
-    double top_h = 1.62;
-    double hip_h = 0.85;
-    int tuck = 0;
+    double x = s->x + 0.05;
+    double y = s->y;
+    double z = s->z;
+    double phase = s->x * 3.4;
+    double swing = 0.0;
+    double hip = 0.92;
+    double head = 1.58;
+    double foot_y = 0.02;
+    double tuck_x = 0.0;
     if (s->state == 2) {
-        top_h = 0.58;
-        hip_h = 0.30;
-    } else if (s->state == 1 || s->y > 0.2) {
-        top_h = 1.28;
-        hip_h = 0.62;
-        tuck = 1;
+        hip = 0.32;
+        head = 0.52;
+        swing = 0.0;
+        tuck_x = 0.35;
+        foot_y = 0.02;
+    } else if (s->state == 1 || s->y > 0.25) {
+        hip = 0.78;
+        head = 1.42;
+        swing = 0.15;
+        tuck_x = 0.28;
+        foot_y = 0.42;
+    } else {
+        swing = sin(phase) * 0.38;
     }
-    int fr, fc, hr, hc, sr, sc;
-    double fd, hd, sd;
-    if (!project(cam, s->x + 0.05, s->y + 0.02, s->z, &fc, &fr, &fd))
-        return;
-    if (!project(cam, s->x + 0.05, s->y + top_h, s->z, &hc, &hr, &hd))
-        return;
-    if (!project(cam, s->x + 0.05, s->y + hip_h, s->z + 0.34, &sc, &sr, &sd))
-        sd = hd;
-    (void)sr;
-    int half_w = sc - hc;
-    if (half_w < 0)
-        half_w = -half_w;
-    if (half_w < 2)
-        half_w = 2;
-    if (half_w > 8)
-        half_w = 8;
-    int top = hr < fr ? hr : fr;
-    int bot = hr > fr ? hr : fr;
-    if (bot - top < 2)
-        bot = top + 2;
-    double depth = fd < hd ? fd : hd;
-    int jacket_r = s->state == 3 ? 180 : 24;
-    int jacket_g = s->state == 3 ? 40 : 168;
-    int jacket_b = s->state == 3 ? 48 : 214;
-    for (int r = top; r <= bot; r++) {
-        if (r < 1 || r >= VROWS - 1)
-            continue;
-        double u = (bot == top) ? 0.0 : (double)(r - top) / (double)(bot - top);
-        int w = half_w;
-        if (u < 0.22)
-            w = half_w - 1;
-        else if (u > 0.72)
-            w = tuck ? half_w - 1 : half_w;
-        if (w < 1)
-            w = 1;
-        int mid = (fc + hc) / 2;
-        for (int c = mid - w; c <= mid + w; c++) {
-            if (c < 0 || c >= COLS)
-                continue;
-            if (depth >= zbuf[r][c])
-                continue;
-            zbuf[r][c] = depth;
-            /* Split legs so a slide (short) and a jump (tucked) read. */
-            if (u > 0.62 && (c == mid - 1 || c == mid))
-                continue;
-            int edge = (c == mid - w || c == mid + w || r == top || r == bot);
-            int R = edge ? clampi(jacket_r + 40, 0, 255) : jacket_r;
-            int G = edge ? clampi(jacket_g + 30, 0, 255) : jacket_g;
-            int B = edge ? clampi(jacket_b + 20, 0, 255) : jacket_b;
-            char ch = (u > 0.62) ? '|' : '#';
-            paint(&grid[r][c], ch, R, G, B, R / 6, G / 6, B / 6);
-        }
-    }
-    stamp_disc(grid, zbuf, top, (fc + hc) / 2, 1, half_w > 3 ? 2 : 1, depth * 0.98,
-               'o', 236, 196, 150);
+    int jr = s->state == 3 ? 170 : 20;
+    int jg = s->state == 3 ? 36 : 150;
+    int jb = s->state == 3 ? 42 : 220;
+    /* Torso, arms, legs, then head. Later stamps sit closer in depth. */
+    limb(grid, zbuf, cam, x, y + hip * 0.55, z, x - 0.02, y + head - 0.34, z, 2, jr, jg, jb);
+    limb(grid, zbuf, cam, x, y + head - 0.40, z, x - swing * 0.5, y + hip * 0.7, z - 0.28,
+         1, jr + 15, jg + 12, jb);
+    limb(grid, zbuf, cam, x, y + head - 0.40, z, x + swing * 0.5, y + hip * 0.7, z + 0.28,
+         1, jr + 15, jg + 12, jb);
+    limb(grid, zbuf, cam, x, y + hip, z, x + swing + tuck_x, y + foot_y, z - 0.30,
+         2, 18, 100, 170);
+    limb(grid, zbuf, cam, x, y + hip, z, x - swing + tuck_x, y + foot_y, z + 0.30,
+         2, 14, 78, 145);
+    int hc, hr;
+    double hd;
+    if (project(cam, x, y + head, z, &hc, &hr, &hd))
+        stamp_disc(grid, zbuf, hr, hc, 3, 3, 0.01, ' ', 240, 200, 160);
 }
 
 static void stamp_text(Cell grid[][COLS], int row, const char *text, int R, int G,
