@@ -600,15 +600,33 @@ static Camera3D chase_cam(const ParkourSnap *s) {
     return cam;
 }
 
-static void paint(const ParkourSnap *s, int paused, int burst) {
-    if (g_lit && g_view_loc >= 0) {
-        Camera3D cam = chase_cam(s);
-        float view[3] = {cam.position.x, cam.position.y, cam.position.z};
-        SetShaderValue(g_shader, g_view_loc, view, SHADER_UNIFORM_VEC3);
-    }
-    BeginDrawing();
-    ClearBackground((Color){92, 42, 36, 255});
-    BeginMode3D(chase_cam(s));
+/* Screen-space sky. A mesh skybox would be eaten by the distance fog.
+   The band is the same rust as fogCol in the fragment shader. */
+static void draw_sky(void) {
+    int w = GetScreenWidth();
+    int h = GetScreenHeight();
+    if (w < 1 || h < 1)
+        return;
+    Color top = {42, 52, 108, 255};
+    Color mid = {214, 98, 52, 255};
+    Color horizon = {158, 76, 56, 255}; /* 0.62, 0.30, 0.22 */
+    Color ground = {48, 22, 18, 255};
+    int band = h * 46 / 100;
+    int blend = h / 8;
+    if (blend < 8)
+        blend = 8;
+    DrawRectangleGradientV(0, 0, w, band, top, mid);
+    DrawRectangleGradientV(0, band - blend, w, blend * 2, mid, horizon);
+    DrawRectangleGradientV(0, band, w, h - band, horizon, ground);
+    float sun_r = (float)h * 0.075f;
+    Vector2 sun = {(float)w * 0.5f, (float)band - (float)h * 0.11f};
+    DrawCircleV(sun, sun_r * 1.35f, (Color){255, 170, 80, 90});
+    DrawCircleV(sun, sun_r, (Color){255, 196, 110, 230});
+    DrawCircleV(sun, sun_r * 0.45f, (Color){255, 236, 200, 255});
+}
+
+static void draw_world(const ParkourSnap *s, int burst, Camera3D cam) {
+    BeginMode3D(cam);
     if (g_lit)
         BeginShaderMode(g_shader);
     draw_corridor(s);
@@ -618,6 +636,17 @@ static void paint(const ParkourSnap *s, int paused, int burst) {
     if (g_lit)
         EndShaderMode();
     EndMode3D();
+}
+
+static void paint(const ParkourSnap *s, int paused, int burst) {
+    Camera3D cam = chase_cam(s);
+    if (g_lit && g_view_loc >= 0) {
+        float view[3] = {cam.position.x, cam.position.y, cam.position.z};
+        SetShaderValue(g_shader, g_view_loc, view, SHADER_UNIFORM_VEC3);
+    }
+    BeginDrawing();
+    draw_sky();
+    draw_world(s, burst, cam);
     draw_hud(s, paused, near_miss(s), burst);
     DrawFPS(GetScreenWidth() - 90, 14);
     EndDrawing();
