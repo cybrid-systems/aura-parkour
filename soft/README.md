@@ -9,3 +9,6 @@
 `parkour/play.aura` is the interactive lockstep loop (`INPUT` on stdin → `SNAP` on stdout).
 
 `parkour/m0_smoke.aura` loads the world. `PARKOUR_M0=1` runs the oneshot during that load (CI). See `docs/snapshot.md`.
+
+`play.aura` writes one `SNAP v1` … `END` before `read-line`. `objects.aura` is the DeepSeek proposal gate: the host script `scripts/propose_objects.py` only writes a lambda file; Soft `hot-strategy:swap!`s it or refuses it. Proposals must not carry a score.
+

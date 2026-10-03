@@ -16,6 +16,21 @@ One command. Soft owns gravity / gap / chunk / score / death; C blits the Soft S
 
 Requires Docker image `ghcr.io/cybrid-systems/dev:v1.0.9` and Soft binary `/workspace/aura-grok/build/aura` (tip `4c4b89b`). Host builds the thin C viewport with cmake (`scripts/play.sh` expands `c/play.c` from `c/play.c.z64` first).
 
+`scripts/soft_play.sh` skips the image entrypoint. That entrypoint `chown -R`s `/home/dev` before Aura starts (tens of seconds; longer on a cold disk) and the viewport gives up after 120s with `Soft did not produce an initial SNAP`. Soft still emits `SNAP v1` … `END` on stdout **before** it reads the first `INPUT`. Logs (`PARKOUR_PLAY_READY`) go to stderr so the pipe stays SNAP-only.
+
+## DeepSeek objects (optional)
+
+DeepSeek V4.1 Flash (`deepseek-flash`, same id as aura-typeplay) may **propose** the next chunk grammar: one Soft lambda string. Soft gates the string (no `set!`, no score, no host calls), `hot-strategy:swap!`s `chunk-grammar`, probes `(chunk-grammar origin)`, and `heal!`s if the live chunk is not a list of obstacle rows. C never generates chunks. Score stays Soft-owned; the model is not asked for a score and a proposal that mentions score is dropped.
+
+```bash
+export DEEPSEEK_API_KEY_FILE=~/code/keys/deepseek
+export DEEPSEEK_MODEL=deepseek-flash   # default
+export DEEPSEEK_BASE_URL=https://api.deepseek.com
+bash scripts/play.sh
+```
+
+`soft_play.sh` also checks `~/code/keys/deepseek`, `/home/dev/code/keys/deepseek`, and `~/.config/aura-build/deepseek_api_key`, and mounts the file into the container as `DEEPSEEK_API_KEY_FILE`. Without a key, play uses the seeded grammar and does not call the network. The first `INPUT` is when a proposal is applied, after the initial SNAP is already on the pipe.
+
 状态：**M1 playable**。软件光栅终端视角（约 64×20）。不是 GL。
 
 ## Soft smoke (CI)
