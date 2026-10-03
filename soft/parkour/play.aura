@@ -2,6 +2,7 @@
 ; stdout = SNAP blocks (Soft owns score/death). C only blits + feeds keys.
 ; Play-mode helpers live here so world.aura stays smoke-compatible.
 (load "/workspace/aura-parkour/soft/parkour/world.aura")
+(load "/workspace/aura-parkour/soft/parkour/objects.aura")
 (require "std/string" all:)
 
 (define *play* 0)
@@ -147,24 +148,28 @@
   (let ((seeded (parkour:seed!)))
     (if (not (parkour:seed-ok?))
         (begin
-          (display "PARKOUR_PLAY_SEED_FAIL\n")
-          (display seeded)
-          (newline)
+          (try (sh "echo PARKOUR_PLAY_SEED_FAIL >&2") (catch (e) 0))
           (error "parkour play seed failed"))
         (begin
           (parkour:play-mode! 1)
           (parkour:reset!)
-          (display "PARKOUR_PLAY_READY\n")
+          ; Authoritative world frame BEFORE any INPUT. Logs stay off stdout
+          ; so the pipe is SNAP v1 ... END only.
           (emit-snap!)
+          (try (sh "echo PARKOUR_PLAY_READY >&2") (catch (e) 0))
           (let loop ()
             (let ((line (read-line)))
               (if (not (string? line))
-                  (begin (display "PARKOUR_PLAY_EOF\n") 0)
-                  (let ((res (handle-line! line)))
-                    (if (= (car res) 1)
-                        (begin (display "PARKOUR_PLAY_QUIT\n") 0)
-                        (begin
-                          (emit-snap!)
-                          (loop)))))))))))
+                  (begin (try (sh "echo PARKOUR_PLAY_EOF >&2") (catch (e) 0)) 0)
+                  (begin
+                    ; First INPUT may swap chunk-grammar from a DeepSeek
+                    ; proposal. Score is not part of that proposal.
+                    (parkour:maybe-propose!)
+                    (let ((res (handle-line! line)))
+                      (if (= (car res) 1)
+                          (begin (try (sh "echo PARKOUR_PLAY_QUIT >&2") (catch (e) 0)) 0)
+                          (begin
+                            (emit-snap!)
+                            (loop))))))))))))
 
 (parkour:play!)
