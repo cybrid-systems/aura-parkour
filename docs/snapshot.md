@@ -12,11 +12,14 @@ code, not a level recipe.
 SNAP v1
 SCALAR gravity=1 jump_v=3 slide_h=1
 PLAYER x=8 y=0 z=0 vx=1 vy=0 vz=0 state=0
+SCORE score=12 alive=1 tick=8
 OBS n=2
 2 16 0 -1 2 2 2 0
 0 28 0 -2 3 1 4 0
 END
 ```
+
+`SCORE` is Soft-owned (`score` / `alive` / `tick`). C displays it; C does not invent scoring rules. M0 oneshot snaps may omit `SCORE` (parser defaults `alive=1`).
 
 | Field | Meaning |
 |-------|---------|
