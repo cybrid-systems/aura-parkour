@@ -1,0 +1,63 @@
+; Interactive Soft play loop. stdin = INPUT lines from the C viewport.
+; stdout = SNAP blocks (Soft owns score/death). C only blits + feeds keys.
+(load "/workspace/aura-parkour/soft/parkour/world.aura")
+(require "std/string" all:)
+
+(define (nth-str xs i)
+  (if (or (null? xs) (< i 0)) ""
+      (if (= i 0) (car xs)
+          (nth-str (cdr xs) (- i 1)))))
+
+(define (as-int s)
+  (if (not (string? s)) 0
+      (let ((n (string->number s)))
+        (if (number? n) n 0))))
+
+; INPUT jump slide dz quit restart
+(define (handle-line! line)
+  (let ((parts (string-split line " ")))
+    (if (or (null? parts) (not (string=? (car parts) "INPUT")))
+        (list 0 0)
+        (let ((jump (as-int (nth-str parts 1)))
+              (slide (as-int (nth-str parts 2)))
+              (dz (as-int (nth-str parts 3)))
+              (quit (as-int (nth-str parts 4)))
+              (restart (as-int (nth-str parts 5))))
+          (cond ((= quit 1) (list 1 0))
+                ((= restart 1)
+                 (parkour:reset!)
+                 (list 0 1))
+                (#t
+                 (parkour:feed! jump slide dz)
+                 (if (= (parkour:alive) 1)
+                     (parkour:tick!))
+                 (list 0 0)))))))
+
+(define (emit-snap!)
+  (display (parkour:snapshot-text)))
+
+(define (parkour:play!)
+  (let ((seeded (parkour:seed!)))
+    (if (not (parkour:seed-ok?))
+        (begin
+          (display "PARKOUR_PLAY_SEED_FAIL\n")
+          (display seeded)
+          (newline)
+          (error "parkour play seed failed"))
+        (begin
+          (parkour:play-mode! 1)
+          (parkour:reset!)
+          (display "PARKOUR_PLAY_READY\n")
+          (emit-snap!)
+          (let loop ()
+            (let ((line (read-line)))
+              (if (not (string? line))
+                  (begin (display "PARKOUR_PLAY_EOF\n") 0)
+                  (let ((res (handle-line! line)))
+                    (if (= (car res) 1)
+                        (begin (display "PARKOUR_PLAY_QUIT\n") 0)
+                        (begin
+                          (emit-snap!)
+                          (loop)))))))))))
+
+(parkour:play!)
