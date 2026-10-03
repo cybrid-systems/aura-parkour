@@ -21,7 +21,7 @@
    This process only: poll keys, feed INPUT lines, blit SNAP frames.
    Soft is a child process (usually docker + aura play.aura). */
 
-enum { FRAME_CAP = 16384, SNAP_CAP = 1 << 20 };
+enum { FRAME_CAP = PARKOUR_FRAME_CAP, SNAP_CAP = 1 << 20 };
 
 
 static void sleep_ms(int ms) {
@@ -249,9 +249,11 @@ int main(int argc, char **argv) {
     }
 
     char *snapbuf = malloc(SNAP_CAP);
-    char frame[FRAME_CAP];
-    if (snapbuf == NULL) {
+    char *frame = malloc(FRAME_CAP);
+    if (snapbuf == NULL || frame == NULL) {
         fprintf(stderr, "parkour_play: oom\n");
+        free(snapbuf);
+        free(frame);
         return 1;
     }
 
@@ -265,7 +267,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "parkour_play: Soft did not produce an initial SNAP\n");
         g_stop = 1;
     } else {
-        if (parkour_render(&snap, frame, sizeof(frame)) >= 0)
+        if (parkour_render(&snap, frame, FRAME_CAP) >= 0)
             blit_hud(tty, &snap, frame, 0);
     }
 
@@ -313,7 +315,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "parkour_play: Soft SNAP parse failed\n");
             break;
         }
-        if (parkour_render(&snap, frame, sizeof(frame)) < 0) {
+        if (parkour_render(&snap, frame, FRAME_CAP) < 0) {
             fprintf(stderr, "parkour_play: render failed\n");
             break;
         }
@@ -336,5 +338,6 @@ int main(int argc, char **argv) {
         waitpid(soft_pid, NULL, 0);
     }
     free(snapbuf);
+    free(frame);
     return 0;
 }

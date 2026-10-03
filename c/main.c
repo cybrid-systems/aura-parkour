@@ -109,11 +109,17 @@ int main(int argc, char **argv) {
     if (integrate)
         parkour_step(&snap, 0, 0);
 
-    char frame[8192];
-    if (parkour_render(&snap, frame, sizeof(frame)) < 0) {
+    char *frame = malloc(PARKOUR_FRAME_CAP);
+    if (frame == NULL) {
+        fprintf(stderr, "parkour_blit: out of memory\n");
+        return 1;
+    }
+    if (parkour_render(&snap, frame, PARKOUR_FRAME_CAP) < 0) {
         fprintf(stderr, "parkour_blit: render failed\n");
+        free(frame);
         return 1;
     }
     parkour_term_blit(frame);
+    free(frame);
     return 0;
 }

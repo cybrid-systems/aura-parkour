@@ -5,8 +5,8 @@ frame. C never invents `OBS` lines. A frame without `END` is dropped; the last
 accepted snapshot stays on screen. That is not a new chunk.
 
 Axes: **+X** forward, **+Y** up, **+Z** lateral. Numbers are world units Soft
-measured. The camera convention (behind the player, looking +X) is viewport
-code, not a level recipe.
+measured. The camera convention (chase cam just behind the runner, looking +X,
+first-person ANSI truecolor) is viewport code, not a level recipe.
 
 ```
 SNAP v1

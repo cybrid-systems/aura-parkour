@@ -31,7 +31,7 @@
   (set! *score* 0)
   (set! *alive* 1)
   (set! *obs* '())
-  (set! *gen-x* 16)
+  (set! *gen-x* 8)
   (set! *tick* 0)
   (set! *in-jump* 0)
   (set! *in-slide* 0)

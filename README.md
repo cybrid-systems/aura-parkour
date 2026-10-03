@@ -31,7 +31,7 @@ bash scripts/play.sh
 
 `soft_play.sh` also checks `~/code/keys/deepseek`, `/home/dev/code/keys/deepseek`, and `~/.config/aura-build/deepseek_api_key`, and mounts the file into the container as `DEEPSEEK_API_KEY_FILE`. Without a key, play uses the seeded grammar and does not call the network. The first `INPUT` is when a proposal is applied, after the initial SNAP is already on the pipe.
 
-状态：**M1 playable**。软件光栅终端视角（约 64×20）。不是 GL。
+状态：**M1 playable**。视口是第一人称 ANSI 真彩 3D 走廊（约 100×36，相机锁在冲刺后方）。Soft 仍拥有世界；C 只光栅和按键。不是 GL。
 
 ## Soft smoke (CI)
 

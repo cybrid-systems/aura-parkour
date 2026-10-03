@@ -13,6 +13,8 @@ set(PARKOUR_COMMON
 
 add_executable(parkour_blit ${PARKOUR_COMMON} main.c)
 target_compile_options(parkour_blit PRIVATE -O2 -Wall -Wextra -pedantic)
+target_link_libraries(parkour_blit PRIVATE m)
 
 add_executable(parkour_play ${PARKOUR_COMMON} play.c)
 target_compile_options(parkour_play PRIVATE -O2 -Wall -Wextra -pedantic)
+target_link_libraries(parkour_play PRIVATE m)

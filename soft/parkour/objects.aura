@@ -79,7 +79,31 @@
          (>= (safe-len (nth ch 1) 0) 1)
          (<= (safe-len (nth ch 1) 0) 8))))
 
-; Gate, swap, probe. On a bad live chunk, heal back to the pre-swap grammar.
+
+; Slide must clear beams (y at head height). Blocks must stay jumpable.
+; This is a grammar gate, not a score write.
+(define (parkour:playable-ob? ob)
+  (let ((k (nth ob 0))
+        (y (nth ob 2))
+        (h (nth ob 5)))
+    (cond ((= k 1) (and (>= y 1) (<= y 2)))
+          ((= k 2) (and (<= y 1) (<= h 3)))
+          (#t #t))))
+
+(define (parkour:playable-obs? xs)
+  (if (null? xs) #t
+      (if (not (pair? xs)) #f
+          (and (parkour:playable-ob? (car xs))
+               (parkour:playable-obs? (cdr xs))))))
+
+(define (parkour:playable-grammar?)
+  (let ((a (try (chunk-grammar 0) (catch (e) #f)))
+        (b (try (chunk-grammar 16) (catch (e) #f))))
+    (and (pair? a) (pair? b)
+         (parkour:playable-obs? (nth a 1))
+         (parkour:playable-obs? (nth b 1)))))
+
+; Gate, swap, probe. On a bad live chunk, swap the seeded grammar back.
 ; Does not touch *score* / *alive* / *tick*.
 (define (parkour:apply-chunk-proposal! body)
   (let ((clean (if (string? body) (string-trim body) "")))
@@ -90,7 +114,8 @@
           (let ((sw (hot-strategy:swap! "chunk-grammar" clean "deepseek-objects")))
             (if (not (and (pair? sw) (equal? (car sw) #t)))
                 (list #f "swap")
-                (if (and (parkour:probe-chunk! 0) (parkour:probe-chunk! 16))
+                (if (and (parkour:probe-chunk! 0) (parkour:probe-chunk! 16)
+                         (parkour:playable-grammar?))
                     (begin
                       (set! *chunk-body* clean)
                       ; Rebuild upcoming geometry from the swapped grammar.
@@ -100,7 +125,10 @@
                       (ensure!)
                       (list #t "swap"))
                     (begin
-                      (parkour:heal!)
+                      ; Swap the seeded grammar back. Do not heal!: a workspace
+                      ; heal restarts the session and drops the play definitions.
+                      ; Score / position are not written here.
+                      (hot-strategy:swap! "chunk-grammar" *chunk-body* "revert")
                       (list #f "probe")))))))))
 
 (define (parkour:run-proposer!)

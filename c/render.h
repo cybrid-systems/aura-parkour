@@ -2,6 +2,7 @@
 #define PARKOUR_RENDER_H
 #include "sample.h"
 #include <stddef.h>
-/* Perspective raster of snapshot boxes. Kind int -> glyph only. */
+/* First-person ANSI truecolor corridor. Soft AABBs only; no '@' map. */
+#define PARKOUR_FRAME_CAP (256 * 1024)
 int parkour_render(const ParkourSnap *s, char *dst, size_t dst_n);
 #endif
