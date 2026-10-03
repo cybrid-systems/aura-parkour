@@ -14,7 +14,7 @@ bash scripts/play.sh
 
 One command. Soft owns gravity / gap / chunk / score / death; C blits the Soft SoA snapshot and feeds keys. Controls: `Space`/`w` jump, `s` slide, `a`/`d` lane, `p` pause, `r` restart, `q` quit.
 
-Requires Docker image `ghcr.io/cybrid-systems/dev:v1.0.9` and Soft binary `/workspace/aura-grok/build/aura` (tip `4c4b89b`). Host builds the thin C viewport with cmake.
+Requires Docker image `ghcr.io/cybrid-systems/dev:v1.0.9` and Soft binary `/workspace/aura-grok/build/aura` (tip `4c4b89b`). Host builds the thin C viewport with cmake (`scripts/play.sh` expands `c/play.c` from `c/play.c.z64` first).
 
 状态：**M1 playable**。软件光栅终端视角（约 64×20）。不是 GL。
 
