@@ -136,13 +136,13 @@ def propose_body(key: str) -> str:
         "Each row is (list KIND X Y Z W H D FLAGS).\n"
         "KIND is an integer: 0 gap, 1 beam, 2 block, 3 pad, 4 coin.\n"
         "X is (+ origin N) with 2 <= N < STRIDE. Z is -2, 0, or 2. "
-        "FLAGS is 0. Kind 2 block: Y 0, H 2, W 2, D 2, on one side. Kind 1 beam: Y 1 (never 0), H 1, Z -2, D 4, so a slide clears it. Kind 4 coin: Y 1 or 3. Kind 0 gap: Y 0, H 1, D 1, Z -2, W is the gap width. Include one beam, one block, and one coin.\n"
+        "FLAGS is 0. Kind 2 block: Y 0, H 2, W 2, D 2, on one side. Kind 1 beam: Y 1 (never 0), H 1, Z -2, D 4, so a slide clears it. Kind 4 coin: Y 1 or 3, W 2, D 2 (a width-1 coin on an odd X is missed at speed 2). Kind 0 gap: Y 0, H 1, D 1, Z -2, W is the gap width. Include one beam, one block, and one coin.\n"
         "Use the gap width only as W of a kind-0 row.\n"
         "Do not mention score, alive, tick, set!, display, shell, http, eval, or mutate.\n"
         "Example shape (do not copy numbers verbatim):\n"
         "(lambda (origin) (let ((gw (gap origin))) "
         "(list (+ origin 22) (list (list 2 (+ origin 5) 0 -1 2 2 2 0) "
-        "(list 4 (+ origin 10) 1 0 1 1 1 0) "
+        "(list 4 (+ origin 10) 1 0 2 1 2 0) "
         "(list 0 (+ origin 16) 0 -2 gw 1 4 0)))))"
     )
     body = {
