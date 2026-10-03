@@ -11,8 +11,8 @@
 enum { COLS = 100, ROWS = 36, VROWS = 72 }; /* two samples per cell */
 
 /* Terminal cells are ~2x taller than wide, so vertical scale is 2x. */
-static const double CELL_Z = 0.0305;
-static const double CELL_Y = 0.0305; /* one vertical sample; pairs become one cell */
+static const double CELL_Z = 0.0390;
+static const double CELL_Y = 0.0390; /* one vertical sample; pairs become one cell */
 
 enum {
     FACE_NONE = -1,
@@ -49,14 +49,14 @@ static int clampi(int v, int lo, int hi) {
 static double dmin(double a, double b) { return a < b ? a : b; }
 
 static void mix_fog(int *r, int *g, int *b, double t) {
-    double f = t / (t + 11.0);
+    double f = t / (t + 7.0);
     if (f < 0.0)
         f = 0.0;
-    if (f > 0.88)
-        f = 0.88;
-    *r = (int)(*r * (1.0 - f) + 12 * f);
-    *g = (int)(*g * (1.0 - f) + 16 * f);
-    *b = (int)(*b * (1.0 - f) + 28 * f);
+    if (f > 0.94)
+        f = 0.94;
+    *r = (int)(*r * (1.0 - f) + 6 * f);
+    *g = (int)(*g * (1.0 - f) + 8 * f);
+    *b = (int)(*b * (1.0 - f) + 18 * f);
 }
 
 static void cam_build(const ParkourSnap *s, Cam *c) {
@@ -65,26 +65,32 @@ static void cam_build(const ParkourSnap *s, Cam *c) {
        Lane z eases so a tap reads as a slide, not a teleport. */
     static int primed = 0;
     static int last_tick = -1;
-    static double sz;
+    static double sz, sy;
+    double target, pitch, bob = 0.0;
+    if (s->state == 2) {
+        target = s->y + 0.92;
+        pitch = 0.58;
+    } else if (s->y > 0.15 || s->state == 1) {
+        target = s->y + 1.25;
+        pitch = 0.20;
+    } else {
+        target = s->y + 2.05;
+        pitch = 0.40;
+        bob = 0.08 * sin((double)s->tick * 1.35);
+    }
     if (!primed || s->tick < last_tick || fabs(s->z - sz) > 3.0) {
         sz = s->z;
+        sy = target;
         primed = 1;
     } else {
-        sz += (s->z - sz) * 0.62;
+        sz += (s->z - sz) * 0.80;
+        sy += (target - sy) * 0.42;
     }
     last_tick = s->tick;
-    c->ex = s->x - 2.15;
+    c->ex = s->x - 1.75;
     c->ez = sz;
-    if (s->state == 2) {
-        c->ey = s->y + 1.02;
-        c->pitch = 0.50;
-    } else if (s->y > 0.15 || s->state == 1) {
-        c->ey = s->y + 1.55;
-        c->pitch = 0.28;
-    } else {
-        c->ey = s->y + 2.25;
-        c->pitch = 0.34;
-    }
+    c->ey = sy + bob;
+    c->pitch = pitch;
     if (c->ey < 0.45)
         c->ey = 0.45;
     {
@@ -239,8 +245,8 @@ static void shade_floor(const ParkourSnap *s, double hx, double hz, double t,
         paint(cell, rim ? '#' : ' ', R, G, B, R / 5, G / 5, B / 5);
         return;
     }
-    int ix = (int)floor(hx);
-    int iz = (int)floor(hz + 8.0);
+    int ix = (int)floor(hx * 2.0);
+    int iz = (int)floor(hz * 2.0 + 16.0);
     int tile = (ix + iz) & 1;
     double fx = hx - floor(hx);
     int seam = (fx < 0.06 || fx > 0.94);
@@ -377,7 +383,7 @@ static int on_rim(int face, double hx, double hy, double hz, double x0, double y
     } else {
         m = dmin(dmin(hx - x0, x1 - hx), dmin(hy - y0, y1 - hy));
     }
-    return m < 0.14;
+    return m < 0.22;
 }
 
 static char face_glyph(int kind, int face, int tick) {
@@ -406,7 +412,7 @@ static void shade_box(int kind, int face, int rim, int tick, double t, Cell *cel
         G = clampi(G + 46, 0, 255);
         B = clampi(B + 36, 0, 255);
     }
-    mix_fog(&R, &G, &B, kind == 4 ? t * 0.35 : t);
+    mix_fog(&R, &G, &B, kind == 4 ? t * 0.22 : t * 0.50);
     if (kind == 4) {
         R = clampi(R + 30, 0, 255);
         G = clampi(G + 24, 0, 255);
