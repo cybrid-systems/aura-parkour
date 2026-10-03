@@ -23,6 +23,8 @@ typedef struct {
     int nobs;
     ParkourObs obs[PARKOUR_MAX_OBS];
     int accepted;
+    /* Viewport only. Soft never sends this; snap_clear leaves it 0. */
+    int fx_coin;
 } ParkourSnap;
 
 /* Last complete SNAP wins. A truncated tail does not replace it
