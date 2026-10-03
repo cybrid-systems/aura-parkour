@@ -1,7 +1,7 @@
 ; Offline gate: a score-mutating body is refused; a geometry lambda swaps.
 ; No network. SCORE must stay 0 — DeepSeek/host code does not own score.
-(load "/workspace/aura-parkour/soft/parkour/world.aura")
-(load "/workspace/aura-parkour/soft/parkour/objects.aura")
+(load "soft/parkour/world.aura")
+(load "soft/parkour/objects.aura")
 
 (define (main)
   (let ((seeded (parkour:seed!)))

@@ -1,1 +1,1 @@
-(load "/workspace/aura-parkour/soft/parkour/world.aura")
+(load "soft/parkour/world.aura")

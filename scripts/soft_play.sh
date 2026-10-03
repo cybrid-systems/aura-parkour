@@ -4,8 +4,8 @@
 #
 # Modes:
 # 1) Host with Docker: run Soft in ghcr.io/cybrid-systems/dev:v1.0.9 (skip ENTRYPOINT).
-# 2) Already inside that Linux image (no docker): run Soft natively, with
-#    /workspace/{aura-grok,aura-parkour} symlinks so Soft loads stay fixed.
+# 2) Already inside that Linux image (no docker): run Soft natively from ROOT
+#    (cwd + PARKOUR_ROOT). Soft sources use relative paths — no /workspace symlinks.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMG="ghcr.io/cybrid-systems/dev:v1.0.9"
@@ -61,14 +61,12 @@ have_docker() {
 }
 
 run_native() {
-  # Soft scripts hardcode /workspace/aura-parkour and /workspace/aura-grok.
-  mkdir -p /workspace
-  ln -sfn "$ROOT" /workspace/aura-parkour
-  ln -sfn "$AURA_SRC" /workspace/aura-grok
-  export AURA_PATH=/workspace/aura-grok/lib
+  # Real paths only — Soft loads are cwd-relative; never mkdir/ln /workspace.
+  export AURA_PATH="${AURA_SRC}/lib"
   export AURA_PIPELINE_STRICT=0
   export AURA_SANDBOX=off
-  export AURA_BIN=/workspace/aura-grok/build/aura
+  export AURA_BIN="${AURA_SRC}/build/aura"
+  export PARKOUR_ROOT="$ROOT"
   if KEY_FILE="$(resolve_key_file)"; then
     export DEEPSEEK_API_KEY_FILE="$KEY_FILE"
   fi
@@ -77,8 +75,9 @@ run_native() {
   if [[ -n "${PARKOUR_PROPOSE:-}" ]]; then
     export PARKOUR_PROPOSE
   fi
-  echo "soft_play: native Soft (no docker)" >&2
-  exec /usr/bin/stdbuf -oL -eL "$AURA_BIN" /workspace/aura-parkour/soft/parkour/play.aura
+  echo "soft_play: native Soft (no docker, no symlinks)" >&2
+  cd "$ROOT"
+  exec /usr/bin/stdbuf -oL -eL "$AURA_BIN" "$ROOT/soft/parkour/play.aura"
 }
 
 run_docker() {
@@ -98,6 +97,7 @@ run_docker() {
   fi
   EXTRA+=(-e "DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-flash}")
   EXTRA+=(-e "DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}")
+  EXTRA+=(-e "PARKOUR_ROOT=/workspace/aura-parkour")
   echo "soft_play: docker Soft via ${IMG}" >&2
   exec "${DOCKER[@]}" run --rm -i --entrypoint /usr/local/bin/gosu \
     -v "${AURA_SRC}:/workspace/aura-grok" \

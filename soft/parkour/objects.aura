@@ -105,7 +105,7 @@
 
 (define (parkour:run-proposer!)
   (sh (string-append
-        "python3 /workspace/aura-parkour/scripts/propose_objects.py "
+        "python3 scripts/propose_objects.py "
         *propose-path*)))
 
 (define (parkour:maybe-propose!)

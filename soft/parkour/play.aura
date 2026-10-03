@@ -1,8 +1,8 @@
 ; Interactive Soft play loop. stdin = INPUT lines from the C viewport.
 ; stdout = SNAP blocks (Soft owns score/death). C only blits + feeds keys.
 ; Play-mode helpers live here so world.aura stays smoke-compatible.
-(load "/workspace/aura-parkour/soft/parkour/world.aura")
-(load "/workspace/aura-parkour/soft/parkour/objects.aura")
+(load "soft/parkour/world.aura")
+(load "soft/parkour/objects.aura")
 (require "std/string" all:)
 
 (define *play* 0)

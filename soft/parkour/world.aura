@@ -391,7 +391,7 @@
               (say "PARKOUR_M0_HEAL_RAW" healed)
               (run-n 2)
               (say "PARKOUR_M0_SCALAR" (parkour:refresh!))
-              (let ((snap-path "/workspace/aura-parkour/build/m0.snap")
+              (let ((snap-path "build/m0.snap")
                     (snap-text (parkour:write-snap! snap-path)))
                 (say "PARKOUR_M0_SNAP" snap-path)
                 (display "PARKOUR_M0_SNAP_INLINE\n")
