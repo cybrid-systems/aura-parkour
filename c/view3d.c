@@ -63,7 +63,8 @@ static const char *FS = "#version 330\n"
                          "  vec3 warm = vec3(1.0, 0.62, 0.32);\n"
                          "  vec3 fillDir = normalize(vec3(0.35, 0.55, -0.4));\n"
                          "  float fill = max(dot(n, fillDir), 0.0);\n"
-                         "  vec3 lit = base * (sky * 0.62 + warm * diff + vec3(0.90, 0.74, 0.58) * fill * 0.34) + warm * rim * 0.08;\n"
+                         "  vec3 lit = base * (sky * 0.62 + warm * diff + vec3(0.90, 0.74, 0.58) * fill * 0.34);\n"
+                         "  lit += vec3(1.0, 0.78, 0.55) * rim * 0.28;\n"
                          "  float dist = length(viewPos - fragPosition);\n"
                          "  float fog = clamp((dist - 5.0) / 28.0, 0.0, 1.0);\n"
                          "  vec3 fogCol = vec3(0.62, 0.30, 0.22);\n"
@@ -320,6 +321,47 @@ static void draw_corridor(const ParkourSnap *s) {
                   (Color){210, 170, 130, 255});
     }
     g_tex = g_white;
+    {
+        Color stone = {132, 108, 86, 255};
+        Color cap = {168, 140, 108, 255};
+        int post = x0 - ((x0 % 8) + 8) % 8;
+        for (int x = post; x < x1; x += 8) {
+            if (x < x0)
+                continue;
+            float px = (float)x + 1.0f;
+            draw_mesh((Vector3){px, 2.2f, -4.15f}, (Vector3){0.55f, 4.4f, 0.55f}, stone);
+            draw_mesh((Vector3){px, 2.2f, 4.15f}, (Vector3){0.55f, 4.4f, 0.55f}, stone);
+            draw_mesh((Vector3){px, 4.45f, -4.15f}, (Vector3){0.8f, 0.18f, 0.8f}, cap);
+            draw_mesh((Vector3){px, 4.45f, 4.15f}, (Vector3){0.8f, 0.18f, 0.8f}, cap);
+        }
+        int vine = x0 - ((x0 % 12) + 12) % 12;
+        for (int x = vine; x < x1; x += 12) {
+            if (x < x0)
+                continue;
+            float px = (float)x + 0.4f;
+            float sway = sinf((float)GetTime() * 1.6f + px) * 0.18f;
+            for (int side = -1; side <= 1; side += 2) {
+                float hz = 4.05f * (float)side;
+                for (int k = 0; k < 4; k++) {
+                    float t = (float)k;
+                    Color leaf = (k & 1) ? (Color){64, 168, 78, 255} : (Color){36, 122, 58, 255};
+                    draw_mesh((Vector3){px, 3.7f - t * 0.55f, hz + sway * t},
+                              (Vector3){0.16f, 0.42f, 0.22f}, leaf);
+                }
+            }
+        }
+        int flag = x0 - ((x0 % 16) + 16) % 16;
+        for (int x = flag; x < x1; x += 16) {
+            if (x < x0)
+                continue;
+            float px = (float)x + 1.0f;
+            int alt = ((x / 16) & 1);
+            Color cloth = alt ? (Color){230, 64, 54, 255} : (Color){255, 196, 48, 255};
+            float flutter = sinf((float)GetTime() * 3.0f + px) * 0.12f;
+            draw_mesh((Vector3){px, 3.3f, -4.35f}, (Vector3){0.08f, 1.6f, 0.08f}, (Color){90, 70, 54, 255});
+            draw_mesh((Vector3){px + 0.35f + flutter, 3.85f, -4.35f}, (Vector3){0.55f, 0.28f, 0.06f}, cloth);
+        }
+    }
     for (int i = 0; i < s->nobs; i++) {
         const ParkourObs *o = &s->obs[i];
         if (o->kind == 0)
