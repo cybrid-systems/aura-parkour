@@ -348,8 +348,8 @@ static void kind_rgb(int kind, int *R, int *G, int *B) {
         break;
     case 4: /* coin */
         *R = 255;
-        *G = 214;
-        *B = 48;
+        *G = 236;
+        *B = 70;
         break;
     default:
         *R = 180;
@@ -389,8 +389,8 @@ static int on_rim(int face, double hx, double hy, double hz, double x0, double y
 
 static char face_glyph(int kind, int face, int tick) {
     if (kind == 4) {
-        static const char spin[] = "*+x*";
-        return spin[tick & 3];
+        (void)tick;
+        return ' ';
     }
     if (kind == 1)
         return '=';
@@ -415,8 +415,9 @@ static void shade_box(int kind, int face, int rim, int tick, double t, Cell *cel
     }
     mix_fog(&R, &G, &B, kind == 4 ? t * 0.22 : t * 0.50);
     if (kind == 4) {
-        R = clampi(R + 30, 0, 255);
-        G = clampi(G + 24, 0, 255);
+        R = clampi(R + 40, 0, 255);
+        G = clampi(G + 36, 0, 255);
+        B = clampi(B + 8, 0, 255);
     }
     paint(cell, face_glyph(kind, face, tick), R, G, B, R / 6, G / 6, B / 6);
 }
@@ -608,16 +609,16 @@ static void stamp_runner(Cell grid[][COLS], double zbuf[][COLS], const ParkourSn
     int jr = s->state == 3 ? 170 : 20;
     int jg = s->state == 3 ? 36 : 150;
     int jb = s->state == 3 ? 42 : 220;
-    /* Torso, arms, legs, then head. Later stamps sit closer in depth. */
+    /* Torso, legs, then arms and head so the silhouette reads over the floor. */
     limb(grid, zbuf, cam, x, y + hip * 0.55, z, x - 0.02, y + head - 0.34, z, 2, jr, jg, jb);
-    limb(grid, zbuf, cam, x, y + head - 0.40, z, x - swing * 0.5, y + hip * 0.7, z - 0.28,
-         1, jr + 15, jg + 12, jb);
-    limb(grid, zbuf, cam, x, y + head - 0.40, z, x + swing * 0.5, y + hip * 0.7, z + 0.28,
-         1, jr + 15, jg + 12, jb);
-    limb(grid, zbuf, cam, x, y + hip, z, x + swing + tuck_x, y + foot_y, z - 0.30,
+    limb(grid, zbuf, cam, x, y + hip, z, x + swing + tuck_x, y + foot_y, z - 0.32,
          2, 18, 100, 170);
-    limb(grid, zbuf, cam, x, y + hip, z, x - swing + tuck_x, y + foot_y, z + 0.30,
+    limb(grid, zbuf, cam, x, y + hip, z, x - swing + tuck_x, y + foot_y, z + 0.32,
          2, 14, 78, 145);
+    limb(grid, zbuf, cam, x, y + head - 0.42, z - 0.10, x - swing * 0.85, y + hip * 0.35,
+         z - 0.58, 1, 236, 176, 128);
+    limb(grid, zbuf, cam, x, y + head - 0.42, z + 0.10, x + swing * 0.85, y + hip * 0.35,
+         z + 0.58, 1, 220, 150, 108);
     int hc, hr;
     double hd;
     if (project(cam, x, y + head, z, &hc, &hr, &hd))
@@ -726,6 +727,85 @@ static int emit_frame(char *dst, size_t dst_n, Cell grid[][COLS]) {
     return (int)(p - dst);
 }
 
+static double iv_gap(double a0, double a1, double b0, double b1) {
+    if (a1 < b0)
+        return b0 - a1;
+    if (b1 < a0)
+        return a0 - b1;
+    return 0.0;
+}
+
+/* Alongside or just over/under a box. Overlap on the lethal axes is a hit,
+   not juice, and coins do not count. */
+static int near_miss(const ParkourSnap *s) {
+    if (s->alive == 0 || s->state == 3)
+        return 0;
+    double body = s->state == 2 ? 1.0 : 2.0;
+    for (int i = 0; i < s->nobs; i++) {
+        const ParkourObs *o = &s->obs[i];
+        if (o->kind == 4)
+            continue;
+        double x0 = (double)o->x, x1 = x0 + (double)o->w;
+        double y0 = (double)o->y, y1 = y0 + (double)o->h;
+        double z0 = (double)o->z, z1 = z0 + (double)o->d;
+        double xg = iv_gap(s->x, s->x + 0.2, x0, x1);
+        if (xg > 0.8)
+            continue;
+        if (o->kind == 0) {
+            if (xg == 0.0 && s->y > 0.05 && s->y < 1.05)
+                return 1;
+            continue;
+        }
+        double yg = iv_gap(s->y, s->y + body, y0, y1);
+        double zg = iv_gap(s->z, s->z + 0.2, z0, z1);
+        int x_on = xg == 0.0;
+        int y_on = yg == 0.0;
+        int z_on = zg == 0.0;
+        if (x_on && y_on && z_on)
+            continue;
+        if (x_on && z_on && yg > 0.0 && yg <= 1.05)
+            return 1;
+        if (x_on && y_on && zg > 0.0 && zg <= 1.15)
+            return 1;
+    }
+    return 0;
+}
+
+static void tint_border(Cell grid[][COLS], int R, int G, int B, int rows) {
+    for (int r = 0; r < VROWS; r++) {
+        int edge = r < rows || r >= VROWS - rows;
+        for (int c = 0; c < COLS; c++) {
+            if (!edge && c >= rows && c < COLS - rows)
+                continue;
+            grid[r][c].fr = (unsigned char)clampi(grid[r][c].fr / 2 + R / 2, 0, 255);
+            grid[r][c].fg = (unsigned char)clampi(grid[r][c].fg / 2 + G / 2, 0, 255);
+            grid[r][c].fb = (unsigned char)clampi(grid[r][c].fb / 2 + B / 2, 0, 255);
+            grid[r][c].br = (unsigned char)clampi(grid[r][c].br / 2 + R / 3, 0, 255);
+            grid[r][c].bg = (unsigned char)clampi(grid[r][c].bg / 2 + G / 3, 0, 255);
+            grid[r][c].bb = (unsigned char)clampi(grid[r][c].bb / 2 + B / 3, 0, 255);
+        }
+    }
+}
+
+static void stamp_burst(Cell grid[][COLS], double zbuf[][COLS], const ParkourSnap *s,
+                        const Cam *cam) {
+    if (s->fx_coin <= 0)
+        return;
+    double k = (double)s->fx_coin;
+    double spread = 0.25 + (8.0 - k) * 0.06;
+    static const double oz[4] = {-1.0, 1.0, -0.45, 0.45};
+    static const double oy[4] = {0.35, 0.15, 0.7, -0.05};
+    for (int i = 0; i < 4; i++) {
+        int c, r;
+        double d;
+        double yy = s->y + 1.15 + oy[i] * spread;
+        double zz = s->z + oz[i] * spread;
+        if (!project(cam, s->x + 0.15, yy, zz, &c, &r, &d))
+            continue;
+        stamp_disc(grid, zbuf, r, c, 2, 2, 0.005, '*', 255, 230, 40);
+    }
+}
+
 int parkour_render(const ParkourSnap *s, char *dst, size_t dst_n) {
     if (s == NULL || dst == NULL || dst_n < 64)
         return -1;
@@ -745,6 +825,11 @@ int parkour_render(const ParkourSnap *s, char *dst, size_t dst_n) {
     }
     outline_pass(grid, zbuf);
     stamp_runner(grid, zbuf, s, &cam);
+    stamp_burst(grid, zbuf, s, &cam);
+    if (near_miss(s))
+        tint_border(grid, 255, 210, 80, 2);
+    if (s->fx_coin > 0)
+        tint_border(grid, 255, 196, 40, 1);
     if (s->alive == 0 || s->state == 3) {
         stamp_text(grid, VROWS / 2 - 2, "DEAD", 255, 64, 64);
         stamp_text(grid, VROWS / 2 + 2, "r restart    q quit", 255, 220, 220);
@@ -763,9 +848,9 @@ int parkour_render(const ParkourSnap *s, char *dst, size_t dst_n) {
     }
 
     int n = snprintf(dst, dst_n,
-                     "\033[0m\033[1mFPS3D\033[0m score=%d %s tick=%d %s y=%.1f lane=%s\n",
-                     s->score, s->alive ? "ALIVE" : "DEAD", s->tick, state_name(s->state),
-                     s->y, lane_name(s->z));
+                     "\033[0m\033[1mFPS3D\033[0m score=%d spd=%.0f %s tick=%d %s y=%.1f lane=%s\n",
+                     s->score, s->vx, s->alive ? "ALIVE" : "DEAD", s->tick,
+                     state_name(s->state), s->y, lane_name(s->z));
     if (n < 0 || (size_t)n >= dst_n)
         return -1;
     int body = emit_frame(dst + n, dst_n - (size_t)n, grid);
