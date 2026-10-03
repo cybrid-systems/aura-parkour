@@ -14,7 +14,8 @@ else
   echo "smoke_soft: docker not available" >&2
   exit 1
 fi
-exec "${DOCKER[@]}" run --rm \
+# Skip image entrypoint chown (same reason as soft_play.sh).
+exec "${DOCKER[@]}" run --rm --entrypoint /usr/local/bin/gosu \
   -v "$AURA_SRC":/workspace/aura-grok \
   -v "$ROOT":/workspace/aura-parkour \
   -w /workspace/aura-parkour \
@@ -24,4 +25,4 @@ exec "${DOCKER[@]}" run --rm \
   -e PARKOUR_M0=1 \
   -e AURA_BIN=/workspace/aura-grok/build/aura \
   "$IMG" \
-  /workspace/aura-grok/build/aura /workspace/aura-parkour/soft/parkour/m0_smoke.aura
+  dev /workspace/aura-grok/build/aura /workspace/aura-parkour/soft/parkour/m0_smoke.aura
