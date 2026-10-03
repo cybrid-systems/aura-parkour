@@ -1,0 +1,410 @@
+; Live parkour world. Strategies gravity / gap / chunk-grammar are workspace
+; defines seeded once with set-code (sandbox off). After seed, the session
+; only hot-strategy:swap! / heal!. C is not involved.
+;
+; hot-strategy keeps a single active name (*hs-name*). Register the name
+; about to change before swap! / heal!, same as rule-lantern.
+
+(require "std/hot-strategy" all:)
+
+(define *gravity-body*
+  "(lambda (ctx) (cond ((equal? ctx \"jump\") 3) ((equal? ctx \"slide\") 1) (#t 1)))")
+(define *gravity-heavy*
+  "(lambda (ctx) (cond ((equal? ctx \"jump\") 3) ((equal? ctx \"slide\") 1) (#t 2)))")
+(define *gap-body* "(lambda (ctx) 3)")
+(define *chunk-body*
+  "(lambda (origin) (let ((gw (gap origin))) (list (+ origin 24) (list (list 4 (+ origin 4) 1 0 1 1 1 0) (list 2 (+ origin 8) 0 -1 2 2 2 0) (list 1 (+ origin 14) 1 -2 4 1 4 0) (list 0 (+ origin 20) 0 -2 gw 1 4 0)))))")
+
+(define *x* 0)
+(define *y* 0)
+(define *z* 0)
+(define *vx* 1)
+(define *vy* 0)
+(define *vz* 0)
+(define *state* 0)
+(define *score* 0)
+(define *alive* 1)
+(define *obs* '())
+(define *gen-x* 16)
+(define *tick* 0)
+(define *grav* 0)
+(define *jump-v* 0)
+(define *slide-h* 0)
+(define *seed-ok* #f)
+
+(define (nth xs i)
+  (if (or (null? xs) (< i 0)) 0
+      (if (= i 0) (car xs)
+          (nth (cdr xs) (- i 1)))))
+
+(define (rev xs)
+  (let loop ((ys xs) (acc '()))
+    (if (null? ys) acc
+        (loop (cdr ys) (cons (car ys) acc)))))
+
+(define (count xs)
+  (let loop ((ys xs) (n 0))
+    (if (null? ys) n
+        (loop (cdr ys) (+ n 1)))))
+
+(define (seed-src)
+  (string-append
+    "(define (gravity ctx) (cond ((equal? ctx \"jump\") 3) ((equal? ctx \"slide\") 1) (#t 1)))\n"
+    "(define (gap ctx) 3)\n"
+    "(define (chunk-grammar origin) (let ((gw (gap origin))) (list (+ origin 24) (list (list 4 (+ origin 4) 1 0 1 1 1 0) (list 2 (+ origin 8) 0 -1 2 2 2 0) (list 1 (+ origin 14) 1 -2 4 1 4 0) (list 0 (+ origin 20) 0 -2 gw 1 4 0)))))\n"))
+
+(define (parkour:seed!)
+  (let ((sc (try (set-code (seed-src)) (catch (e) e))))
+    (if (not (equal? sc #t))
+        (begin (set! *seed-ok* #f) (list #f sc))
+        (begin
+          (eval-current)
+          (hot-strategy:register! "gravity" *gravity-body*)
+          (hot-strategy:register! "gap" *gap-body*)
+          (hot-strategy:register! "chunk-grammar" *chunk-body*)
+          (set! *grav* (gravity "g"))
+          (set! *jump-v* (gravity "jump"))
+          (set! *slide-h* (gravity "slide"))
+          (set! *seed-ok* #t)
+          (list #t *grav* *jump-v* *slide-h*)))))
+
+(define (parkour:refresh!)
+  (set! *grav* (gravity "g"))
+  (set! *jump-v* (gravity "jump"))
+  (set! *slide-h* (gravity "slide"))
+  (list *grav* *jump-v* *slide-h*))
+
+(define (xz-hit? ob)
+  (and (>= *x* (nth ob 1)) (< *x* (+ (nth ob 1) (nth ob 4)))
+       (>= *z* (nth ob 3)) (< *z* (+ (nth ob 3) (nth ob 6)))))
+
+(define (body-h)
+  (if (= *state* 2) 1 2))
+
+(define (vol-hit? ob)
+  (and (xz-hit? ob)
+       (< *y* (+ (nth ob 2) (nth ob 5)))
+       (> (+ *y* (body-h)) (nth ob 2))))
+
+(define (intent)
+  (let loop ((xs *obs*) (jump 0) (slide 0))
+    (if (null? xs)
+        (cons jump slide)
+        (let* ((ob (car xs))
+               (k (nth ob 0))
+               (dx (- (nth ob 1) *x*))
+               (near (or (xz-hit? ob) (and (>= dx 0) (<= dx 4)))))
+          (cond ((not near) (loop (cdr xs) jump slide))
+                ((= k 1) (loop (cdr xs) jump 1))
+                ((or (= k 0) (= k 2)) (loop (cdr xs) 1 slide))
+                (#t (loop (cdr xs) jump slide)))))))
+
+(define (touch-coins)
+  (let loop ((xs *obs*) (acc '()) (gained 0))
+    (if (null? xs)
+        (begin (set! *obs* (rev acc)) gained)
+        (let ((ob (car xs)))
+          (if (and (= (nth ob 0) 4) (= (nth ob 7) 0) (vol-hit? ob))
+              (loop (cdr xs)
+                    (cons (list 4 (nth ob 1) (nth ob 2) (nth ob 3)
+                                (nth ob 4) (nth ob 5) (nth ob 6) 1) acc)
+                    (+ gained 5))
+              (loop (cdr xs) (cons ob acc) gained))))))
+
+(define (lethal?)
+  (let loop ((xs *obs*))
+    (if (null? xs) 0
+        (let ((ob (car xs)))
+          (let ((k (nth ob 0)))
+            (cond ((and (= k 0) (xz-hit? ob) (<= *y* 0)) 1)
+                  ((and (= k 2) (vol-hit? ob)) 1)
+                  ((and (= k 1) (not (= *state* 2)) (vol-hit? ob)) 1)
+                  (#t (loop (cdr xs)))))))))
+
+(define (ensure!)
+  (let loop ((guard 0))
+    (if (or (>= guard 8) (>= *gen-x* (+ *x* 48)))
+        (count *obs*)
+        (let ((ch (chunk-grammar *gen-x*)))
+          (if (not (pair? ch))
+              -1
+              (begin
+                (set! *gen-x* (nth ch 0))
+                (set! *obs* (append *obs* (nth ch 1)))
+                (loop (+ guard 1))))))))
+
+(define (cull!)
+  (let loop ((xs *obs*) (acc '()))
+    (if (null? xs)
+        (set! *obs* (rev acc))
+        (let ((ob (car xs)))
+          (if (< (+ (nth ob 1) (nth ob 4)) (- *x* 2))
+              (loop (cdr xs) acc)
+              (loop (cdr xs) (cons ob acc)))))))
+
+(define (integrate!)
+  (let* ((it (intent))
+         (do-slide (cdr it))
+         (do-jump (if (= do-slide 0) (car it) 0)))
+    (parkour:refresh!)
+    (if (= *alive* 0)
+        #f
+        (begin
+          (cond ((= do-slide 1)
+                 (set! *state* 2)
+                 (set! *vy* 0)
+                 (set! *y* 0))
+                ((and (= do-jump 1) (<= *y* 0))
+                 (set! *state* 1)
+                 (set! *vy* *jump-v*))
+                ((<= *y* 0)
+                 (set! *state* 0)
+                 (set! *vy* 0))
+                (#t (set! *state* 1)))
+          (if (or (> *y* 0) (> *vy* 0))
+              (begin
+                (set! *vy* (- *vy* *grav*))
+                (set! *y* (+ *y* *vy*))
+                (if (< *y* 0)
+                    (begin
+                      (set! *y* 0)
+                      (set! *vy* 0)
+                      (if (= *state* 1) (set! *state* 0))))))
+          (set! *vx* 1)
+          (set! *x* (+ *x* *vx*))
+          (set! *score* (+ *score* (touch-coins)))
+          (if (= (lethal?) 1)
+              (begin (set! *alive* 0) (set! *state* 3))
+              (set! *score* (+ *score* 1)))))))
+
+(define (parkour:tick!)
+  (ensure!)
+  (integrate!)
+  (cull!)
+  (set! *tick* (+ *tick* 1))
+  *tick*)
+
+(define (parkour:score) *score*)
+(define (parkour:alive) *alive*)
+(define (parkour:obst) (count *obs*))
+(define (parkour:tick-n) *tick*)
+(define (parkour:grav) *grav*)
+(define (parkour:jump-v) *jump-v*)
+(define (parkour:slide-h) *slide-h*)
+(define (parkour:seed-ok?) *seed-ok*)
+
+(define (arm! name body)
+  (hot-strategy:register! name body))
+
+(define (parkour:swap-gravity! body)
+  (arm! "gravity" *gravity-body*)
+  (hot-strategy:swap! "gravity" body "heavier"))
+
+(define (parkour:heavy-body) *gravity-heavy*)
+
+(define (parkour:heal!)
+  ; *hs-name* was armed to gravity before swap!. heal! restores that
+  ; name's last-good snapshot (pre-swap). Do not register! here: register!
+  ; would snapshot the already-swapped workspace and heal back to it.
+  (hot-strategy:heal!))
+
+(define (relower-num key)
+  (let ((h (try (engine:metrics "query:incremental-relower-stats") (catch (e) #f))))
+    (if (hash? h)
+        (let ((v (try (hash-ref h key) (catch (e) #f))))
+          (if (number? v) v #f))
+        #f)))
+
+(define (parkour:partial) (relower-num "adaptive-partial-decision-total"))
+(define (parkour:full) (relower-num "adaptive-full-decision-total"))
+
+(define (jit-num key)
+  (let ((h (try (engine:metrics "query:jit-stats-hash") (catch (e) #f))))
+    (if (hash? h)
+        (let ((v (try (hash-ref h key) (catch (e) #f))))
+          (if (number? v) v #f))
+        #f)))
+
+(define (parkour:invalidate) (jit-num "hotswap-invalidate-total"))
+
+(define (emit-obs xs)
+  (if (null? xs) ""
+      (let ((ob (car xs)))
+        (string-append
+          (number->string (nth ob 0)) " "
+          (number->string (nth ob 1)) " "
+          (number->string (nth ob 2)) " "
+          (number->string (nth ob 3)) " "
+          (number->string (nth ob 4)) " "
+          (number->string (nth ob 5)) " "
+          (number->string (nth ob 6)) " "
+          (number->string (nth ob 7)) "\n"
+          (emit-obs (cdr xs))))))
+
+(define (parkour:snapshot-text)
+  (parkour:refresh!)
+  (string-append
+    "SNAP v1\n"
+    "SCALAR gravity=" (number->string *grav*)
+    " jump_v=" (number->string *jump-v*)
+    " slide_h=" (number->string *slide-h*) "\n"
+    "PLAYER x=" (number->string *x*)
+    " y=" (number->string *y*)
+    " z=" (number->string *z*)
+    " vx=" (number->string *vx*)
+    " vy=" (number->string *vy*)
+    " vz=" (number->string *vz*)
+    " state=" (number->string *state*) "\n"
+    "OBS n=" (number->string (count *obs*)) "\n"
+    (emit-obs *obs*)
+    "END\n"))
+
+(define (parkour:write-snap! path)
+  (let ((text (parkour:snapshot-text)))
+    (write-file path text)
+    text))
+
+(define (kind-ch k)
+  (cond ((= k 0) "v")
+        ((= k 1) "=")
+        ((= k 2) "#")
+        ((= k 3) "+")
+        ((= k 4) "o")
+        (#t "?")))
+
+; Perspective depth preview. Camera behind the player, looking +X.
+; Soft-only wire/depth stamp. The product frame is the C viewport.
+(define (face-span ob)
+  (let* ((ox (nth ob 1)) (oy (nth ob 2)) (oz (nth ob 3))
+         (h (nth ob 5)) (d (nth ob 6))
+         (dx (- ox (- *x* 6))))
+    (if (<= dx 0) #f
+        (let* ((z0 (/ (* 48 (- oz *z*)) dx))
+               (z1 (/ (* 48 (- (+ oz d) *z*)) dx))
+               (y0 (/ (* 32 (- oy (+ *y* 2))) dx))
+               (y1 (/ (* 32 (- (+ oy h) (+ *y* 2))) dx))
+               (u0 (round (+ 24 z0)))
+               (u1 (round (+ 24 z1)))
+               (v0 (round (- 8 y0)))
+               (v1 (round (- 8 y1))))
+          (list (if (< u0 u1) u0 u1)
+                (if (> u0 u1) u0 u1)
+                (if (< v0 v1) v0 v1)
+                (if (> v0 v1) v0 v1)
+                dx)))))
+
+(define (depth-at u v)
+  (let loop ((xs *obs*) (best 9999) (ch " "))
+    (if (null? xs)
+        (if (and (= u 24) (= v 10)) "@" ch)
+        (let ((sp (face-span (car xs))))
+          (if (not (pair? sp))
+              (loop (cdr xs) best ch)
+              (let ((u0 (nth sp 0)) (u1 (nth sp 1))
+                    (v0 (nth sp 2)) (v1 (nth sp 3))
+                    (dx (nth sp 4)))
+                (if (and (>= u u0) (<= u u1) (>= v v0) (<= v v1) (< dx best))
+                    (loop (cdr xs) dx (kind-ch (nth (car xs) 0)))
+                    (loop (cdr xs) best ch))))))))
+
+(define (depth-row v)
+  (let loop ((u 0) (acc ""))
+    (if (>= u 48) acc
+        (loop (+ u 1) (string-append acc (depth-at u v))))))
+
+(define (parkour:depth)
+  (let loop ((v 0) (acc ""))
+    (if (>= v 16) acc
+        (loop (+ v 1) (string-append acc (depth-row v) "\n")))))
+
+(define (say k v)
+  (display k)
+  (display "=")
+  (display v)
+  (newline))
+
+(define (show-tick)
+  (display "PARKOUR_M0_TICK=")
+  (display (parkour:tick-n))
+  (display " SCORE=")
+  (display (parkour:score))
+  (display " ALIVE=")
+  (display (parkour:alive))
+  (display " OBST=")
+  (display (parkour:obst))
+  (newline))
+
+(define (run-n n)
+  (let loop ((i 0))
+    (if (>= i n) i
+        (begin
+          (parkour:tick!)
+          (show-tick)
+          (loop (+ i 1))))))
+
+(define (parkour:m0-smoke!)
+  (let ((seeded (parkour:seed!)))
+    (say "PARKOUR_M0_SEED" seeded)
+    (if (not (parkour:seed-ok?))
+        (error "parkour seed failed"))
+    (run-n 4)
+    (let ((partial0 (parkour:partial))
+          (full0 (parkour:full))
+          (inv0 (parkour:invalidate)))
+      (say "PARKOUR_M0_PARTIAL0" partial0)
+      (say "PARKOUR_M0_FULL0" full0)
+      (say "PARKOUR_M0_INV0" inv0)
+      (let ((swapped (parkour:swap-gravity! (parkour:heavy-body))))
+        (display "PARKOUR_M0_SWAP=")
+        (if (and (pair? swapped) (equal? (car swapped) #t))
+            (display "ok")
+            (display "fail"))
+        (newline)
+        (say "PARKOUR_M0_SWAP_RAW" swapped)
+        (let ((partial1 (parkour:partial))
+              (full1 (parkour:full))
+              (inv1 (parkour:invalidate)))
+          (say "PARKOUR_M0_PARTIAL1" partial1)
+          (say "PARKOUR_M0_FULL1" full1)
+          (say "PARKOUR_M0_INV1" inv1)
+          (let ((budget
+                 (cond ((or (not (number? partial0)) (not (number? partial1))
+                            (not (number? full0)) (not (number? full1)))
+                        "unread")
+                       ((> full1 full0) "fail")
+                       ((and (<= partial1 partial0)
+                             (or (not (number? inv0)) (not (number? inv1)) (<= inv1 inv0)))
+                        "fail")
+                       (#t "pass"))))
+            (say "PARKOUR_M0_BUDGET" budget)
+            (run-n 2)
+            (say "PARKOUR_M0_SCALAR_SWAPPED" (parkour:refresh!))
+            (if (equal? budget "fail")
+                (say "PARKOUR_M0_BUDGET_HEAL" "required")
+                (say "PARKOUR_M0_BUDGET_HEAL" "not-required"))
+            (let ((healed (parkour:heal!)))
+              (display "PARKOUR_M0_HEAL=")
+              (if (equal? healed #t)
+                  (display "ok")
+                  (display "fail"))
+              (newline)
+              (say "PARKOUR_M0_HEAL_RAW" healed)
+              (run-n 2)
+              (say "PARKOUR_M0_SCALAR" (parkour:refresh!))
+              (let ((snap-path "/workspace/aura-parkour/build/m0.snap")
+                    (snap-text (parkour:write-snap! snap-path)))
+                (say "PARKOUR_M0_SNAP" snap-path)
+                (display "PARKOUR_M0_SNAP_INLINE\n")
+                (display snap-text)
+                (display "PARKOUR_M0_DEPTH_BEGIN\n")
+                (display (parkour:depth))
+                (display "PARKOUR_M0_DEPTH_END\n")
+                (display "PARKOUR_M0_DONE\n")))))))))
+
+(define (parkour:maybe-smoke!)
+  (let ((flag (getenv "PARKOUR_M0")))
+    (if (and (string? flag) (string=? flag "1"))
+        (parkour:m0-smoke!)
+        0)))
+
+(parkour:maybe-smoke!)
