@@ -11,8 +11,8 @@
 enum { COLS = 100, ROWS = 36 };
 
 /* Terminal cells are ~2x taller than wide, so vertical scale is 2x. */
-static const double CELL_Z = 0.0260;
-static const double CELL_Y = 0.0520;
+static const double CELL_Z = 0.0305;
+static const double CELL_Y = 0.0610;
 
 enum {
     FACE_NONE = -1,
@@ -61,9 +61,20 @@ static void mix_fog(int *r, int *g, int *b, double t) {
 
 static void cam_build(const ParkourSnap *s, Cam *c) {
     /* Locked behind the sprint, slightly above. Jump lags so the body
-       rises in frame; slide drops the eye so the ceiling comes down. */
-    c->ex = s->x - 2.55;
-    c->ez = s->z;
+       rises in frame; slide drops the eye so the ceiling comes down.
+       Lane z eases so a tap reads as a slide, not a teleport. */
+    static int primed = 0;
+    static int last_tick = -1;
+    static double sz;
+    if (!primed || s->tick < last_tick || fabs(s->z - sz) > 3.0) {
+        sz = s->z;
+        primed = 1;
+    } else {
+        sz += (s->z - sz) * 0.62;
+    }
+    last_tick = s->tick;
+    c->ex = s->x - 2.15;
+    c->ez = sz;
     if (s->state == 2) {
         c->ey = s->y + 1.02;
         c->pitch = 0.50;
@@ -200,15 +211,21 @@ static const char *lane_name(double z) {
     }
 }
 
+/* Solid framebuffer cell. Glyphs made the corridor look like an ASCII map;
+   the shaded color is the pixel. ch/bg args are ignored except by stamp_text. */
 static void paint(Cell *cell, char ch, int fr, int fg, int fb, int br, int bgc,
                   int bb) {
-    cell->ch = ch;
-    cell->fr = (unsigned char)clampi(fr, 0, 255);
-    cell->fg = (unsigned char)clampi(fg, 0, 255);
-    cell->fb = (unsigned char)clampi(fb, 0, 255);
-    cell->br = (unsigned char)clampi(br, 0, 255);
-    cell->bg = (unsigned char)clampi(bgc, 0, 255);
-    cell->bb = (unsigned char)clampi(bb, 0, 255);
+    (void)ch;
+    (void)br;
+    (void)bgc;
+    (void)bb;
+    unsigned char r = (unsigned char)clampi(fr, 0, 255);
+    unsigned char g = (unsigned char)clampi(fg, 0, 255);
+    unsigned char b = (unsigned char)clampi(fb, 0, 255);
+    cell->ch = ' ';
+    cell->fr = cell->br = r;
+    cell->fg = cell->bg = g;
+    cell->fb = cell->bb = b;
 }
 
 static void shade_floor(const ParkourSnap *s, double hx, double hz, double t,
@@ -223,11 +240,19 @@ static void shade_floor(const ParkourSnap *s, double hx, double hz, double t,
         return;
     }
     int ix = (int)floor(hx);
-    int stripe = ix & 1;
-    int R = stripe ? 78 : 26;
-    int G = stripe ? 88 : 32;
-    int B = stripe ? 112 : 46;
-    char ch = stripe ? '-' : '.';
+    int iz = (int)floor(hz + 8.0);
+    int tile = (ix + iz) & 1;
+    double fx = hx - floor(hx);
+    int seam = (fx < 0.06 || fx > 0.94);
+    int R = tile ? 96 : 38;
+    int G = tile ? 104 : 44;
+    int B = tile ? 118 : 58;
+    if (seam) {
+        R = R * 3 / 5;
+        G = G * 3 / 5;
+        B = B * 3 / 5;
+    }
+    char ch = ' ';
     /* Lane guides converge toward the vanishing point. Current lane is lit. */
     static const double guides[5] = {-2.0, -1.0, 0.0, 1.0, 2.0};
     for (int i = 0; i < 5; i++) {
@@ -277,20 +302,22 @@ static void shade_ceil(double hx, double t, Cell *cell) {
 static void shade_wall(double hx, double hy, double t, int right, Cell *cell) {
     int col = ((int)floor(hx)) & 1;
     int band = ((int)floor(hy * 2.0)) & 1;
-    int R = right ? 36 : 28;
-    int G = right ? 48 : 40;
-    int B = right ? 78 : 70;
+    int R = right ? 42 : 34;
+    int G = right ? 58 : 50;
+    int B = right ? 96 : 88;
     if (col) {
-        R += 18;
-        G += 16;
-        B += 22;
+        R += 22;
+        G += 18;
+        B += 16;
     }
-    if (band) {
-        R += 8;
-        G += 8;
-        B += 6;
+    if (band)
+        B += 10;
+    if (hy < 0.45) {
+        R += 28;
+        G += 24;
+        B += 10;
     }
-    char ch = col ? 'H' : '|';
+    char ch = ' ';
     mix_fog(&R, &G, &B, t);
     paint(cell, ch, R, G, B, R / 5, G / 5, B / 5);
 }
@@ -388,10 +415,10 @@ static void shade_box(int kind, int face, int rim, int tick, double t, Cell *cel
 }
 
 static void sky_at(int row, Cell *cell) {
-    double u = 1.0 - (double)row / (double)(ROWS - 1);
-    int B = 28 + (int)(70 * (1.0 - u));
-    int G = 14 + (int)(24 * (1.0 - u));
-    int R = 8 + (int)(10 * (1.0 - u));
+    double u = (double)row / (double)(ROWS - 1);
+    int R = (int)(18 + 92.0 * u);
+    int G = (int)(36 + 70.0 * u);
+    int B = (int)(120 - 28.0 * u);
     paint(cell, ' ', R, G, B, R, G, B);
 }
 
@@ -600,7 +627,11 @@ static void stamp_text(Cell grid[][COLS], int row, const char *text, int R, int 
         int c = c0 + i;
         if (c < 0 || c >= COLS)
             continue;
-        paint(&grid[row][c], text[i], R, G, B, 8, 6, 12);
+        paint(&grid[row][c], ' ', 12, 8, 16, 12, 8, 16);
+        grid[row][c].ch = text[i];
+        grid[row][c].fr = (unsigned char)clampi(R, 0, 255);
+        grid[row][c].fg = (unsigned char)clampi(G, 0, 255);
+        grid[row][c].fb = (unsigned char)clampi(B, 0, 255);
     }
 }
 
