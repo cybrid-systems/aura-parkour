@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$ROOT/build"
 echo "aura-parkour: building viewport..."
-python3 "$ROOT/scripts/expand_playc.py"
+if [[ ! -s "$ROOT/c/play.c" ]]; then
+  python3 "$ROOT/scripts/expand_playc.py"
+fi
 cmake -S "$ROOT/c" -B "$ROOT/build/c" >/dev/null
 cmake --build "$ROOT/build/c" --parallel >/dev/null
 echo "aura-parkour: starting Soft-backed 3D corridor..."
