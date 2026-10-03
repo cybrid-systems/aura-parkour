@@ -100,6 +100,8 @@
   (let ((a (try (chunk-grammar 0) (catch (e) #f)))
         (b (try (chunk-grammar 16) (catch (e) #f))))
     (and (pair? a) (pair? b)
+         (>= (safe-len (nth a 1) 0) 6)
+         (>= (safe-len (nth b 1) 0) 6)
          (parkour:playable-obs? (nth a 1))
          (parkour:playable-obs? (nth b 1)))))
 
