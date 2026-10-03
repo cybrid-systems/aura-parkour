@@ -1,0 +1,25 @@
+; Offline gate: a score-mutating body is refused; a geometry lambda swaps.
+; No network. SCORE must stay 0 — DeepSeek/host code does not own score.
+(load "/workspace/aura-parkour/soft/parkour/world.aura")
+(load "/workspace/aura-parkour/soft/parkour/objects.aura")
+
+(define (main)
+  (let ((seeded (parkour:seed!)))
+    (if (not (parkour:seed-ok?))
+        (begin (display "PROPOSE_GATE_FAIL seed\n") seeded)
+        (let ((bad "(lambda (origin) (begin (set! *score* 99) (list (+ origin 20) '())))")
+              (good "(lambda (origin) (let ((gw (gap origin))) (list (+ origin 22) (list (list 2 (+ origin 5) 0 -1 2 2 2 0) (list 4 (+ origin 10) 1 0 1 1 1 0) (list 0 (+ origin 16) 0 -2 gw 1 4 0)))))"))
+          (let ((rbad (parkour:apply-chunk-proposal! bad))
+                (rgood (parkour:apply-chunk-proposal! good)))
+            (if (and (pair? rbad) (equal? (car rbad) #f)
+                     (pair? rgood) (equal? (car rgood) #t)
+                     (= *score* 0)
+                     (= (parkour:alive) 1))
+                (display "PROPOSE_GATE_OK\n")
+                (begin
+                  (display "PROPOSE_GATE_FAIL\n")
+                  (display rbad) (newline)
+                  (display rgood) (newline)
+                  (display *score*) (newline))))))))
+
+(main)
