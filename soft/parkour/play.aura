@@ -53,10 +53,14 @@
         (if (> *z* 2) (set! *z* 2)))))
 
 ; Score-owned sprint. Soft writes *vx*; the viewport only follows the snap.
-; 0–23 → 2, then +1 every 24 points, capped at 5. M0 does not use this.
+; 0-23 -> 2, then 3 at 24, 4 at 36, 5 at 48, 6 at 72, 7 at 96, 8 at 120.
+; M0 does not use this.
 (define (parkour:pace)
-  (cond ((>= *score* 72) 5)
-        ((>= *score* 48) 4)
+  (cond ((>= *score* 120) 8)
+        ((>= *score* 96) 7)
+        ((>= *score* 72) 6)
+        ((>= *score* 48) 5)
+        ((>= *score* 36) 4)
         ((>= *score* 24) 3)
         (#t 2)))
 
