@@ -631,24 +631,31 @@ static void draw_hud(const ParkourSnap *s, int paused, int miss, int burst) {
         state = "DEAD";
     if (paused)
         state = "PAUSED";
-    DrawText(TextFormat("score %d   spd %.0f   %s   y %.1f", s->score, s->vx, state, s->y), 16,
-             14, 22, (Color){236, 240, 248, 255});
-    DrawText("space/w jump   s slide   a/d/arrows/drag lane   p pause   r restart   q quit", 16,
-             h - 28, 16, (Color){180, 190, 210, 220});
+    DrawRectangle(16, 14, 248, 72, (Color){16, 10, 12, 170});
+    DrawText(TextFormat("%d", s->score), 28, 20, 42, (Color){255, 248, 236, 255});
+    DrawText(TextFormat("SPD %.0f", s->vx), 150, 28, 28, (Color){255, 196, 72, 255});
+    DrawText(state, 28, 64, 16, (Color){186, 198, 214, 230});
+    DrawText("jump  slide  lane     R restart    Q quit", 16, h - 26, 16, (Color){210, 206, 198, 210});
     if (miss) {
-        DrawRectangle(0, 0, w, 28, (Color){255, 176, 40, 160});
-        DrawRectangle(0, h - 28, w, 28, (Color){255, 176, 40, 160});
+        DrawRectangle(0, 0, w, 10, (Color){255, 176, 40, 180});
+        DrawRectangle(0, h - 10, w, 10, (Color){255, 176, 40, 180});
     }
     if (burst > 0) {
-        unsigned char a = (unsigned char)(40 + burst * 8);
+        unsigned char a = (unsigned char)(30 + burst * 6);
         DrawRectangle(0, 0, w, h, (Color){255, 200, 60, a});
-        DrawRectangleLinesEx((Rectangle){8, 8, (float)w - 16, (float)h - 16}, 4.0f,
-                             (Color){255, 230, 90, 220});
     }
     if (!s->alive || s->state == 3) {
-        DrawRectangle(0, 0, w, h, (Color){40, 0, 0, 90});
-        DrawText("DEAD", w / 2 - 70, h / 2 - 30, 60, (Color){255, 80, 80, 255});
-        DrawText("r restart    q quit", w / 2 - 110, h / 2 + 40, 24, RAYWHITE);
+        DrawRectangle(0, 0, w, h, (Color){28, 0, 0, 150});
+        int bw = 460;
+        int bh = 168;
+        int bx = w / 2 - bw / 2;
+        int by = h / 2 - bh / 2;
+        DrawRectangle(bx, by, bw, bh, (Color){32, 8, 10, 230});
+        DrawRectangleLinesEx((Rectangle){(float)bx, (float)by, (float)bw, (float)bh}, 3.0f,
+                             (Color){255, 90, 70, 255});
+        DrawText("DEAD", w / 2 - 78, by + 22, 64, (Color){255, 86, 72, 255});
+        DrawText(TextFormat("score  %d", s->score), w / 2 - 70, by + 96, 28, (Color){255, 236, 220, 255});
+        DrawText("R  restart          Q  quit", w / 2 - 150, by + 132, 22, (Color){255, 220, 200, 255});
     }
 }
 
