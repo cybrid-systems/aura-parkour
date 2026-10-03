@@ -1,30 +1,31 @@
-# Snapshot interchange (M0)
+# Snapshot interchange (M0, 3D)
 
-Soft writes this text. The C viewport only parses and blits it.
-C never invents `OBS` lines. If a frame is truncated (no `END`), C keeps the
-last accepted snapshot and does not generate a chunk.
+Soft writes this text. The C viewport only parses it and rasters a perspective
+frame. C never invents `OBS` lines. A frame without `END` is dropped; the last
+accepted snapshot stays on screen. That is not a new chunk.
 
-Coordinates are **screen cells** after Soft's camera. `PLAYER x` is the column
-Soft already chose (about 1/3 of the width). `OBS` `x` is `world_x - scroll`.
-Scalars `gravity`, `jump_v`, and `slide_h` are whatever the live Soft
-strategies returned this tick (integers are fine).
+Axes: **+X** forward, **+Y** up, **+Z** lateral. Numbers are world units Soft
+measured. The camera convention (behind the player, looking +X) is viewport
+code, not a level recipe.
 
 ```
 SNAP v1
 SCALAR gravity=1 jump_v=3 slide_h=1
-PLAYER x=8 y=0 vx=0 vy=0 state=0
-OBS n=3
-0 20 4 1 0
-1 28 6 2 0
-2 36 2 2 0
+PLAYER x=8 y=0 z=0 vx=1 vy=0 vz=0 state=0
+OBS n=2
+2 16 0 -1 2 2 2 0
+0 28 0 -2 3 1 4 0
 END
 ```
 
 | Field | Meaning |
 |-------|---------|
-| `kind` | `0` gap, `1` beam, `2` block, `3` pad, `4` coin. Soft forms emit these ints. C may map int to a glyph for blit only. |
-| `x w h` | Screen cell, width, height. |
+| `kind` | `0` gap, `1` beam, `2` block, `3` pad, `4` coin. Soft emits the int. C maps it to a raster glyph only. |
+| `x y z` | World position of the box minimum corner. |
+| `w h d` | Extents along X, Y, Z. |
 | `flags` | Soft-owned. `1` on a coin means already collected. |
 | `state` | `0` run, `1` air, `2` slide, `3` dead. |
 
-Several `SNAP v1` ... `END` blocks may sit in one stream. C blits the last complete block. A bad trailing block does not erase the previous one.
+Scalars `gravity`, `jump_v`, `slide_h` come from Soft strategies each tick.
+
+Several `SNAP v1` … `END` blocks may share a stream. C rasters the last complete block.

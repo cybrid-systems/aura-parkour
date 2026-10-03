@@ -4,22 +4,25 @@
 
 #define PARKOUR_MAX_OBS 256
 
+/* World-space box. Soft owns the numbers. kind is data, not a generator. */
 typedef struct {
     int kind;
-    int x, w, h, flags;
+    int x, y, z;
+    int w, h, d;
+    int flags;
 } ParkourObs;
 
 typedef struct {
     double gravity, jump_v, slide_h;
-    double px, py, vx, vy;
+    double x, y, z;
+    double vx, vy, vz;
     int state;
     int nobs;
     ParkourObs obs[PARKOUR_MAX_OBS];
-    int accepted; /* 1 after at least one complete SNAP */
+    int accepted;
 } ParkourSnap;
 
-/* Parse text Soft wrote. The last complete SNAP replaces *out.
-   A truncated trailing frame is ignored and the previous accepted
-   snapshot is kept. Returns 1 if *out holds an accepted snapshot. */
+/* Last complete SNAP wins. A truncated tail does not replace it
+   and does not invent boxes. */
 int parkour_sample_parse(const char *text, size_t n, ParkourSnap *out);
 #endif
