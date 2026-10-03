@@ -478,18 +478,60 @@ static int near_miss(const ParkourSnap *s) {
     return 0;
 }
 
+static void draw_dust(const ParkourSnap *s) {
+    static float prev_y = 0.0f;
+    static int land = 0;
+    g_tex = g_white;
+    if (s->alive == 0 || s->state == 3) {
+        prev_y = (float)s->y;
+        return;
+    }
+    if (prev_y > 0.35f && s->y < 0.08f)
+        land = 14;
+    prev_y = (float)s->y;
+    float x = (float)s->x + 0.15f;
+    float z = (float)s->z;
+    Color mote = {186, 154, 112, 255};
+    if (s->state == 2) {
+        for (int i = 0; i < 10; i++) {
+            float t = (float)i / 9.0f;
+            float drift = sinf((float)GetTime() * 9.0f + (float)i) * 0.18f;
+            draw_sphere((Vector3){x - 0.15f - t * 1.8f, 0.1f + t * 0.28f, z + drift},
+                        0.06f + t * 0.1f, mote);
+        }
+    } else if (s->y < 0.2f) {
+        float phase = (float)s->x * 3.8f;
+        for (int i = 0; i < 7; i++) {
+            float k = (float)i;
+            float hop = fmaxf(0.0f, sinf(phase - k * 0.65f));
+            draw_sphere((Vector3){x - 0.25f - k * 0.22f, 0.06f + hop * 0.28f,
+                                  z + ((i & 1) ? 0.2f : -0.2f)},
+                        0.05f + hop * 0.07f, mote);
+        }
+    }
+    if (land > 0) {
+        float spread = (14 - land) * 0.12f + 0.2f;
+        for (int i = 0; i < 8; i++) {
+            float ang = (float)i / 8.0f * 6.28318f;
+            draw_sphere((Vector3){x + cosf(ang) * spread, 0.12f + spread * 0.15f, z + sinf(ang) * spread * 0.6f},
+                        0.09f, (Color){210, 176, 130, 255});
+        }
+        land--;
+    }
+}
+
 static void draw_burst(const ParkourSnap *s, int frames) {
     if (frames <= 0)
         return;
-    float k = (float)frames / 18.0f;
-    for (int i = 0; i < 14; i++) {
-        float ang = (float)i / 14.0f * 6.28318f + (float)GetTime() * 3.0f;
-        float spread = (1.0f - k) * 2.2f + 0.25f;
-        Vector3 p = {(float)s->x + 0.35f + cosf(ang) * spread * 0.35f,
-                     (float)s->y + 1.15f + sinf(ang) * spread,
-                     (float)s->z + sinf(ang * 2.0f) * spread * 0.65f};
-        Color c = (i & 1) ? (Color){255, 236, 120, 255} : (Color){255, 170, 40, 255};
-        draw_sphere(p, 0.1f + k * 0.12f, c);
+    float k = (float)frames / 28.0f;
+    for (int i = 0; i < 22; i++) {
+        float ang = (float)i / 22.0f * 6.28318f + (float)GetTime() * 4.0f;
+        float spread = (1.0f - k) * 2.8f + 0.2f;
+        Vector3 p = {(float)s->x + 0.3f + cosf(ang) * spread * 0.45f,
+                     (float)s->y + 1.2f + fabsf(sinf(ang)) * spread,
+                     (float)s->z + sinf(ang * 2.0f) * spread * 0.8f};
+        Color c = (i % 3 == 0) ? (Color){255, 250, 200, 255} : (Color){255, 196, 48, 255};
+        draw_sphere(p, 0.08f + k * 0.16f, c);
     }
 }
 
@@ -527,24 +569,32 @@ static void draw_hud(const ParkourSnap *s, int paused, int miss, int burst) {
 }
 
 static Camera3D chase_cam(const ParkourSnap *s) {
+    static float lag_z = 0.0f;
     float bob = 0.0f;
     if (s->state == 0)
-        bob = sinf((float)s->x * 2.4f) * 0.07f;
-    float eye_y = (float)s->y + (s->state == 2 ? 1.15f : 2.45f) + bob;
-    /* Soft vx stretches the lens. A graze kicks it wider and shakes. */
-    float fov = 52.0f + (float)s->vx * 5.0f;
-    if (fov > 88.0f)
-        fov = 88.0f;
+        bob = sinf((float)s->x * 2.4f) * 0.06f;
+    /* Higher and further back, looking slightly down the lane. */
+    float eye_y = (float)s->y + (s->state == 2 ? 1.85f : 3.65f) + bob;
+    float fov = 50.0f + (float)s->vx * 5.0f;
+    if (fov > 86.0f)
+        fov = 86.0f;
     int miss = near_miss(s);
     float shake = 0.0f;
     if (miss) {
         fov += 8.0f;
-        shake = sinf((float)GetTime() * 48.0f) * 0.12f;
+        shake = sinf((float)GetTime() * 48.0f) * 0.1f;
     }
+    float z = (float)s->z;
+    lag_z += (z - lag_z) * 0.16f;
+    float roll = (lag_z - z) * 0.28f;
+    if (roll > 0.22f)
+        roll = 0.22f;
+    if (roll < -0.22f)
+        roll = -0.22f;
     Camera3D cam = {0};
-    cam.position = (Vector3){(float)s->x - 6.2f, eye_y + shake, (float)s->z + shake * 0.7f};
-    cam.target = (Vector3){(float)s->x + 8.0f, (float)s->y + 1.15f + shake * 0.35f, (float)s->z};
-    cam.up = (Vector3){0.0f, 1.0f, 0.0f};
+    cam.position = (Vector3){(float)s->x - 7.8f, eye_y + shake, z * 0.82f + shake * 0.5f};
+    cam.target = (Vector3){(float)s->x + 10.0f, (float)s->y + 0.85f + shake * 0.25f, z};
+    cam.up = (Vector3){sinf(roll), cosf(roll), 0.0f};
     cam.fovy = fov;
     cam.projection = CAMERA_PERSPECTIVE;
     return cam;
@@ -562,6 +612,7 @@ static void paint(const ParkourSnap *s, int paused, int burst) {
     if (g_lit)
         BeginShaderMode(g_shader);
     draw_corridor(s);
+    draw_dust(s);
     draw_runner(s);
     draw_burst(s, burst);
     if (g_lit)
@@ -841,7 +892,7 @@ int main(int argc, char **argv) {
                     alpha = 0.0f;
                     awaiting = 0;
                     if (to.score - from.score >= 5)
-                        coin_burst = 18;
+                        coin_burst = 28;
                     log_snap(&to);
                     if (g_smoke && g_smoke_step >= 6)
                         quit = 1;
