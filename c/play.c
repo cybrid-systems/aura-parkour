@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "clock.h"
+#include "glide.h"
 #include "render.h"
 #include "sample.h"
 #include "term.h"
@@ -164,67 +165,6 @@ static int poll_snap(int fd, char *dst, size_t cap, size_t *out_n) {
     if (got > 0)
         return 0;
     return got == 0 ? 1 : got;
-}
-
-static double smoothstep(double t) {
-    if (t < 0.0)
-        t = 0.0;
-    if (t > 1.0)
-        t = 1.0;
-    return t * t * (3.0 - 2.0 * t);
-}
-
-static double cl01(double t) {
-    if (t < 0.0)
-        return 0.0;
-    if (t > 1.0)
-        return 1.0;
-    return t;
-}
-
-/* Soft's step is vy := vy - g; y := y + vy. Pin both SNAP endpoints and
-   bulge through the interior so the apex is more than one sample.
-   A jump impulse is applied at the start of the tick, before that step,
-   so a launch uses jump_v rather than the previous vy. */
-static double ballistic_y(const ParkourSnap *a, const ParkourSnap *b, double u) {
-    double g = b->gravity > 0.1 ? b->gravity : a->gravity;
-    if (g < 0.1)
-        g = 3.0;
-    double vy = a->vy;
-    if (a->y <= 0.05 && b->y > a->y + 0.2 && b->state == 1) {
-        vy = b->jump_v > 0.1 ? b->jump_v : vy;
-    }
-    double end = a->y + (vy - g);
-    if (end < 0.0)
-        end = 0.0;
-    double err = end - b->y;
-    if (err < 0.0)
-        err = -err;
-    if (err > 0.35 || b->state == 2)
-        return a->y + (b->y - a->y) * u;
-    double y = a->y + (vy - g * u) * u;
-    if (y < 0.0)
-        y = 0.0;
-    return y;
-}
-
-/* Display-only blend. Obstacles, score, and vx stay on the authoritative
-   `to` snap. A rewind or a big jump (restart) snaps instead of gliding. */
-static void present_snap(ParkourSnap *out, const ParkourSnap *a, const ParkourSnap *b,
-                         double t) {
-    *out = *b;
-    double dx = b->x - a->x;
-    if (dx < 0.0)
-        dx = -dx;
-    if (dx > 8.0 || b->tick < a->tick)
-        return;
-    double u = cl01(t);
-    double s = smoothstep(u);
-    out->x = a->x + (b->x - a->x) * u;
-    out->z = a->z + (b->z - a->z) * s;
-    out->y = ballistic_y(a, b, u);
-    if (out->state != 2 && out->state != 3 && out->y > 0.15)
-        out->state = 1;
 }
 
 static void pace_frame(uint64_t start_ns) {
@@ -448,7 +388,7 @@ int main(int argc, char **argv) {
 
         if ((paused && !latch_restart) ||
             (to.accepted && to.alive == 0 && !latch_restart)) {
-            present_snap(&view, &from, &to, alpha);
+            parkour_present(&view, &from, &to, alpha);
             view.fx_coin = coin_burst;
             if (parkour_render(&view, frame, FRAME_CAP) >= 0)
                 blit_hud(tty, &to, frame, paused);
@@ -495,7 +435,7 @@ int main(int argc, char **argv) {
                 break;
             }
         }
-        present_snap(&view, &from, &to, awaiting ? 1.0 : alpha);
+        parkour_present(&view, &from, &to, awaiting ? 1.0 : alpha);
         view.fx_coin = coin_burst;
         if (coin_burst > 0)
             coin_burst--;
