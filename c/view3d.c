@@ -301,16 +301,24 @@ static void draw_corridor(const ParkourSnap *s) {
         if (cx < s->x - 6.0 || cx > s->x + 46.0)
             continue;
         if (o->kind == 4) {
-            float spin = (float)GetTime() * 2.4f + cx;
-            g_mat.maps[MATERIAL_MAP_DIFFUSE].color = (Color){255, 214, 48, 255};
-            Matrix xform = MatrixMultiply(
+            float spin = (float)GetTime() * 5.5f + cx;
+            float pulse = 1.0f + 0.12f * sinf((float)GetTime() * 8.0f + cx);
+            Color gold = {255, 214, 40, 255};
+            g_mat.maps[MATERIAL_MAP_DIFFUSE].color = gold;
+            Matrix face = MatrixMultiply(
                 MatrixTranslate(cx, cy, cz),
-                MatrixMultiply(MatrixRotateY(spin), MatrixScale(0.62f, 0.14f, 0.62f)));
-            if (g_lit)
-                DrawMesh(g_cube, g_mat, xform);
-            else
-                DrawCylinder((Vector3){cx, cy - 0.08f, cz}, 0.38f, 0.38f, 0.16f, 12,
-                             (Color){255, 214, 48, 255});
+                MatrixMultiply(MatrixRotateY(spin), MatrixScale(0.72f * pulse, 0.1f, 0.72f * pulse)));
+            Matrix edge = MatrixMultiply(
+                MatrixTranslate(cx, cy, cz),
+                MatrixMultiply(MatrixRotateY(spin + 1.5708f),
+                               MatrixScale(0.72f * pulse, 0.1f, 0.72f * pulse)));
+            if (g_lit) {
+                DrawMesh(g_cube, g_mat, face);
+                DrawMesh(g_cube, g_mat, edge);
+            } else {
+                DrawCylinder((Vector3){cx, cy - 0.08f, cz}, 0.42f * pulse, 0.42f * pulse, 0.16f, 14, gold);
+            }
+            draw_sphere((Vector3){cx, cy, cz}, 0.16f * pulse, (Color){255, 244, 180, 255});
             continue;
         }
         Color c = {180, 186, 200, 255};
@@ -448,12 +456,14 @@ static void draw_burst(const ParkourSnap *s, int frames) {
     if (frames <= 0)
         return;
     float k = (float)frames / 18.0f;
-    for (int i = 0; i < 8; i++) {
-        float ang = (float)i / 8.0f * 6.28318f + (float)GetTime();
-        float spread = (1.0f - k) * 1.4f + 0.3f;
-        Vector3 p = {(float)s->x + 0.4f + cosf(ang) * spread * 0.2f,
-                     (float)s->y + 1.2f + sinf(ang) * spread, (float)s->z + cosf(ang * 2.0f) * spread};
-        draw_sphere(p, 0.12f + k * 0.08f, (Color){255, 220, 60, 255});
+    for (int i = 0; i < 14; i++) {
+        float ang = (float)i / 14.0f * 6.28318f + (float)GetTime() * 3.0f;
+        float spread = (1.0f - k) * 2.2f + 0.25f;
+        Vector3 p = {(float)s->x + 0.35f + cosf(ang) * spread * 0.35f,
+                     (float)s->y + 1.15f + sinf(ang) * spread,
+                     (float)s->z + sinf(ang * 2.0f) * spread * 0.65f};
+        Color c = (i & 1) ? (Color){255, 236, 120, 255} : (Color){255, 170, 40, 255};
+        draw_sphere(p, 0.1f + k * 0.12f, c);
     }
 }
 
@@ -477,9 +487,12 @@ static void draw_hud(const ParkourSnap *s, int paused, int miss, int burst) {
         DrawRectangle(0, 0, w, 28, (Color){255, 176, 40, 160});
         DrawRectangle(0, h - 28, w, 28, (Color){255, 176, 40, 160});
     }
-    if (burst > 0)
-        DrawRectangleLinesEx((Rectangle){8, 8, (float)w - 16, (float)h - 16}, 3.0f,
-                             (Color){255, 210, 50, 180});
+    if (burst > 0) {
+        unsigned char a = (unsigned char)(40 + burst * 8);
+        DrawRectangle(0, 0, w, h, (Color){255, 200, 60, a});
+        DrawRectangleLinesEx((Rectangle){8, 8, (float)w - 16, (float)h - 16}, 4.0f,
+                             (Color){255, 230, 90, 220});
+    }
     if (!s->alive || s->state == 3) {
         DrawRectangle(0, 0, w, h, (Color){40, 0, 0, 90});
         DrawText("DEAD", w / 2 - 70, h / 2 - 30, 60, (Color){255, 80, 80, 255});
@@ -492,12 +505,19 @@ static Camera3D chase_cam(const ParkourSnap *s) {
     if (s->state == 0)
         bob = sinf((float)s->x * 2.4f) * 0.07f;
     float eye_y = (float)s->y + (s->state == 2 ? 1.15f : 2.45f) + bob;
-    float fov = 58.0f + (float)s->vx * 2.5f;
-    if (fov > 74.0f)
-        fov = 74.0f;
+    /* Soft vx stretches the lens. A graze kicks it wider and shakes. */
+    float fov = 52.0f + (float)s->vx * 5.0f;
+    if (fov > 88.0f)
+        fov = 88.0f;
+    int miss = near_miss(s);
+    float shake = 0.0f;
+    if (miss) {
+        fov += 8.0f;
+        shake = sinf((float)GetTime() * 48.0f) * 0.12f;
+    }
     Camera3D cam = {0};
-    cam.position = (Vector3){(float)s->x - 6.2f, eye_y, (float)s->z};
-    cam.target = (Vector3){(float)s->x + 8.0f, (float)s->y + 1.15f, (float)s->z};
+    cam.position = (Vector3){(float)s->x - 6.2f, eye_y + shake, (float)s->z + shake * 0.7f};
+    cam.target = (Vector3){(float)s->x + 8.0f, (float)s->y + 1.15f + shake * 0.35f, (float)s->z};
     cam.up = (Vector3){0.0f, 1.0f, 0.0f};
     cam.fovy = fov;
     cam.projection = CAMERA_PERSPECTIVE;
