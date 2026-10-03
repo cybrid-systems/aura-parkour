@@ -131,7 +131,7 @@ def propose_body(key: str) -> str:
         "Output the lambda only, no markdown, no explanation.\n"
         "Signature: (lambda (origin) ...)\n"
         "Call (gap origin) for the gap width (a number).\n"
-        "Return (list (+ origin STRIDE) OBS) where STRIDE is an integer from 18 to 28 "
+        "Return (list (+ origin STRIDE) OBS) where STRIDE is an integer from 18 to 22 "
         "and OBS is a list of 5 to 8 obstacle rows.\n"
         "Each row is (list KIND X Y Z W H D FLAGS).\n"
         "KIND is an integer: 0 gap, 1 beam, 2 block, 3 pad, 4 coin.\n"

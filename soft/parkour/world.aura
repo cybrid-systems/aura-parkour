@@ -13,7 +13,7 @@
   "(lambda (ctx) (cond ((equal? ctx \"jump\") 5) ((equal? ctx \"slide\") 1) (#t 4)))")
 (define *gap-body* "(lambda (ctx) 3)")
 (define *chunk-body*
-  "(lambda (origin) (let ((gw (gap origin))) (list (+ origin 24) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 8) 0 2 2 2 2 0) (list 4 (+ origin 10) 3 0 2 1 2 0) (list 4 (+ origin 16) 1 -1 2 1 2 0) (list 1 (+ origin 18) 1 -2 2 1 4 0) (list 3 (+ origin 20) 0 1 2 1 2 0) (list 0 (+ origin 21) 0 -2 gw 1 1 0)))))")
+  "(lambda (origin) (let ((gw (gap origin))) (list (+ origin 20) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 4 (+ origin 11) 1 2 2 1 2 0) (list 1 (+ origin 13) 1 -2 2 1 4 0) (list 3 (+ origin 15) 0 -2 2 1 2 0) (list 0 (+ origin 17) 0 -2 gw 1 1 0)))))")
 
 (define *x* 0)
 (define *y* 0)
@@ -51,7 +51,7 @@
   (string-append
     "(define (gravity ctx) (cond ((equal? ctx \"jump\") 6) ((equal? ctx \"slide\") 1) (#t 3)))\n"
     "(define (gap ctx) 3)\n"
-    "(define (chunk-grammar origin) (let ((gw (gap origin))) (list (+ origin 24) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 8) 0 2 2 2 2 0) (list 4 (+ origin 10) 3 0 2 1 2 0) (list 4 (+ origin 16) 1 -1 2 1 2 0) (list 1 (+ origin 18) 1 -2 2 1 4 0) (list 3 (+ origin 20) 0 1 2 1 2 0) (list 0 (+ origin 21) 0 -2 gw 1 1 0)))))\n"))
+    "(define (chunk-grammar origin) (let ((gw (gap origin))) (list (+ origin 20) (list (list 2 (+ origin 2) 0 -2 2 2 2 0) (list 4 (+ origin 4) 1 0 2 1 2 0) (list 2 (+ origin 6) 0 2 2 2 2 0) (list 4 (+ origin 9) 3 0 2 1 2 0) (list 4 (+ origin 11) 1 2 2 1 2 0) (list 1 (+ origin 13) 1 -2 2 1 4 0) (list 3 (+ origin 15) 0 -2 2 1 2 0) (list 0 (+ origin 17) 0 -2 gw 1 1 0)))))\n"))
 
 (define (parkour:seed!)
   (let ((sc (try (set-code (seed-src)) (catch (e) e))))
