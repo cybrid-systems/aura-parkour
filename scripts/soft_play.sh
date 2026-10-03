@@ -2,16 +2,43 @@
 # Soft play child for parkour_play.
 # stdin: INPUT lines from C. stdout: SNAP blocks only (line-buffered).
 #
-# The dev image ENTRYPOINT chowns -R /home/dev before the command (~40s here,
-# longer on a cold disk). parkour_play only waits 120s for the first SNAP, so
-# that chown produced "Soft did not produce an initial SNAP" even though
-# play.aura emits SNAP v1 ... END before it reads INPUT. Skip the entrypoint
-# and drop to dev with gosu. Soft binary is the mounted tip aura only.
+# Skip the image ENTRYPOINT (chown -R /home/dev) — it can eat the first-SNAP
+# wait. Soft binary is the mounted tip aura only (Linux ELF; Mac host may
+# still ship a Linux aarch64 build under ../aura-grok/build/aura).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-AURA_SRC="${AURA_SRC:-/workspace/aura-grok}"
 IMG="ghcr.io/cybrid-systems/dev:v1.0.9"
 AURA_IN="/workspace/aura-grok/build/aura"
+
+resolve_aura_src() {
+  if [[ -n "${AURA_SRC:-}" ]]; then
+    printf '%s\n' "$AURA_SRC"
+    return 0
+  fi
+  local c
+  for c in \
+    "${ROOT}/../aura-grok" \
+    "/workspace/aura-grok" \
+    "${HOME}/code/claw-space/grok-dev/aura-grok" \
+    "${HOME}/code/grok-dev/aura-grok" \
+    "/home/dev/code/grok-dev/aura-grok"; do
+    if [[ -x "${c}/build/aura" ]]; then
+      printf '%s\n' "$(cd "$c" && pwd)"
+      return 0
+    fi
+  done
+  echo "soft_play: Soft binary not found. Set AURA_SRC to your aura-grok tree" >&2
+  echo "  (needs \$AURA_SRC/build/aura as a Linux ELF). Tried sibling ../aura-grok." >&2
+  return 1
+}
+
+AURA_SRC="$(resolve_aura_src)"
+if [[ ! -x "${AURA_SRC}/build/aura" ]]; then
+  echo "soft_play: missing executable ${AURA_SRC}/build/aura" >&2
+  exit 1
+fi
+echo "soft_play: AURA_SRC=${AURA_SRC}" >&2
+
 if docker info >/dev/null 2>&1; then
   DOCKER=(docker)
 elif sudo docker info >/dev/null 2>&1; then
