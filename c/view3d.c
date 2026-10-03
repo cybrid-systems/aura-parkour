@@ -487,34 +487,45 @@ static void draw_dust(const ParkourSnap *s) {
         return;
     }
     if (prev_y > 0.35f && s->y < 0.08f)
-        land = 14;
+        land = 22;
     prev_y = (float)s->y;
     float x = (float)s->x + 0.15f;
     float z = (float)s->z;
-    Color mote = {186, 154, 112, 255};
+    float spd = (float)s->vx;
+    if (spd < 1.0f)
+        spd = 1.0f;
+    Color mote = {196, 160, 114, 255};
+    Color puff = {226, 190, 140, 255};
     if (s->state == 2) {
-        for (int i = 0; i < 10; i++) {
-            float t = (float)i / 9.0f;
-            float drift = sinf((float)GetTime() * 9.0f + (float)i) * 0.18f;
-            draw_sphere((Vector3){x - 0.15f - t * 1.8f, 0.1f + t * 0.28f, z + drift},
-                        0.06f + t * 0.1f, mote);
+        int n = 14;
+        for (int i = 0; i < n; i++) {
+            float t = (float)i / (float)(n - 1);
+            float drift = sinf((float)GetTime() * 9.0f + (float)i) * 0.22f;
+            draw_sphere((Vector3){x - 0.2f - t * (2.2f + spd * 0.35f), 0.08f + t * 0.35f, z + drift},
+                        0.07f + t * 0.12f, mote);
         }
     } else if (s->y < 0.2f) {
         float phase = (float)s->x * 3.8f;
-        for (int i = 0; i < 7; i++) {
+        int n = 8 + (int)spd;
+        if (n > 18)
+            n = 18;
+        for (int i = 0; i < n; i++) {
             float k = (float)i;
-            float hop = fmaxf(0.0f, sinf(phase - k * 0.65f));
-            draw_sphere((Vector3){x - 0.25f - k * 0.22f, 0.06f + hop * 0.28f,
-                                  z + ((i & 1) ? 0.2f : -0.2f)},
-                        0.05f + hop * 0.07f, mote);
+            float hop = fmaxf(0.0f, sinf(phase - k * 0.55f));
+            float side = ((i & 1) ? 0.22f : -0.22f) + sinf(phase * 0.5f + k) * 0.08f;
+            draw_sphere((Vector3){x - 0.3f - k * (0.18f + spd * 0.045f), 0.05f + hop * 0.32f,
+                                  z + side},
+                        0.045f + hop * 0.09f, mote);
         }
     }
     if (land > 0) {
-        float spread = (14 - land) * 0.12f + 0.2f;
-        for (int i = 0; i < 8; i++) {
-            float ang = (float)i / 8.0f * 6.28318f;
-            draw_sphere((Vector3){x + cosf(ang) * spread, 0.12f + spread * 0.15f, z + sinf(ang) * spread * 0.6f},
-                        0.09f, (Color){210, 176, 130, 255});
+        float spread = (22 - land) * 0.16f + 0.28f;
+        int n = 14;
+        for (int i = 0; i < n; i++) {
+            float ang = (float)i / (float)n * 6.28318f;
+            float lift = 0.08f + spread * 0.35f * ((i % 3 == 0) ? 1.4f : 0.7f);
+            draw_sphere((Vector3){x + cosf(ang) * spread * 1.15f, lift, z + sinf(ang) * spread * 0.7f},
+                        0.08f + (float)(i % 2) * 0.05f, puff);
         }
         land--;
     }
@@ -549,8 +560,8 @@ static void draw_hud(const ParkourSnap *s, int paused, int miss, int burst) {
         state = "PAUSED";
     DrawText(TextFormat("score %d   spd %.0f   %s   y %.1f", s->score, s->vx, state, s->y), 16,
              14, 22, (Color){236, 240, 248, 255});
-    DrawText("space/w jump   s slide   a/d lane   p pause   r restart   q quit", 16, h - 28, 16,
-             (Color){180, 190, 210, 220});
+    DrawText("space/w jump   s slide   a/d/arrows/drag lane   p pause   r restart   q quit", 16,
+             h - 28, 16, (Color){180, 190, 210, 220});
     if (miss) {
         DrawRectangle(0, 0, w, 28, (Color){255, 176, 40, 160});
         DrawRectangle(0, h - 28, w, 28, (Color){255, 176, 40, 160});
@@ -576,8 +587,8 @@ static Camera3D chase_cam(const ParkourSnap *s) {
     /* Higher and further back, looking slightly down the lane. */
     float eye_y = (float)s->y + (s->state == 2 ? 1.85f : 3.65f) + bob;
     float fov = 50.0f + (float)s->vx * 5.0f;
-    if (fov > 86.0f)
-        fov = 86.0f;
+    if (fov > 98.0f)
+        fov = 98.0f;
     int miss = near_miss(s);
     float shake = 0.0f;
     if (miss) {
@@ -638,11 +649,46 @@ static void draw_world(const ParkourSnap *s, int burst, Camera3D cam) {
     EndMode3D();
 }
 
+static RenderTexture2D g_frame;
+static RenderTexture2D g_prev;
+static int g_blur_ready = 0;
+static int g_have_prev = 0;
+
+static void blit_rt(RenderTexture2D rt, Rectangle dest, Color tint) {
+    Rectangle src = {0.0f, 0.0f, (float)rt.texture.width, -(float)rt.texture.height};
+    DrawTexturePro(rt.texture, src, dest, (Vector2){0.0f, 0.0f}, 0.0f, tint);
+}
+
 static void paint(const ParkourSnap *s, int paused, int burst) {
     Camera3D cam = chase_cam(s);
     if (g_lit && g_view_loc >= 0) {
         float view[3] = {cam.position.x, cam.position.y, cam.position.z};
         SetShaderValue(g_shader, g_view_loc, view, SHADER_UNIFORM_VEC3);
+    }
+    float w = (float)GetScreenWidth();
+    float h = (float)GetScreenHeight();
+    if (g_blur_ready && w > 1.0f && h > 1.0f) {
+        BeginTextureMode(g_frame);
+        draw_sky();
+        draw_world(s, burst, cam);
+        EndTextureMode();
+        BeginDrawing();
+        if (g_have_prev) {
+            /* Previous frame, nudged out, then the new frame mostly covers it. */
+            blit_rt(g_prev, (Rectangle){-12.0f, -12.0f, w + 24.0f, h + 24.0f}, WHITE);
+            blit_rt(g_frame, (Rectangle){0.0f, 0.0f, w, h}, (Color){255, 255, 255, 196});
+        } else {
+            blit_rt(g_frame, (Rectangle){0.0f, 0.0f, w, h}, WHITE);
+        }
+        draw_hud(s, paused, near_miss(s), burst);
+        DrawFPS(GetScreenWidth() - 90, 14);
+        EndDrawing();
+        BeginTextureMode(g_prev);
+        blit_rt(g_frame, (Rectangle){0.0f, 0.0f, (float)g_prev.texture.width, (float)g_prev.texture.height},
+                WHITE);
+        EndTextureMode();
+        g_have_prev = 1;
+        return;
     }
     BeginDrawing();
     draw_sky();
@@ -652,15 +698,44 @@ static void paint(const ParkourSnap *s, int paused, int burst) {
     EndDrawing();
 }
 
+static int g_drag_on = 0;
+static float g_drag_x = 0.0f;
+static int g_drag_fired = 0;
+
 static void latch_keys(int *jump, int *slide, int *dz, int *quit, int *restart, int *pause) {
     if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_W))
         *jump = 1;
     if (IsKeyPressed(KEY_S))
         *slide = 1;
-    if (IsKeyPressed(KEY_A))
+    if (IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT))
         *dz = -1;
-    if (IsKeyPressed(KEY_D))
+    if (IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT))
         *dz = 1;
+    /* One lane per press. A long drag or a horizontal scroll counts as a swipe. */
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        g_drag_on = 1;
+        g_drag_x = 0.0f;
+        g_drag_fired = 0;
+    }
+    if (g_drag_on && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        g_drag_x += GetMouseDelta().x;
+        if (!g_drag_fired && g_drag_x >= 56.0f) {
+            *dz = 1;
+            g_drag_fired = 1;
+        } else if (!g_drag_fired && g_drag_x <= -56.0f) {
+            *dz = -1;
+            g_drag_fired = 1;
+        }
+    }
+    if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+        g_drag_on = 0;
+    {
+        Vector2 wheel = GetMouseWheelMoveV();
+        if (wheel.x >= 0.45f)
+            *dz = 1;
+        else if (wheel.x <= -0.45f)
+            *dz = -1;
+    }
     if (IsKeyPressed(KEY_Q) || IsKeyPressed(KEY_ESCAPE))
         *quit = 1;
     if (IsKeyPressed(KEY_R))
@@ -826,6 +901,9 @@ int main(int argc, char **argv) {
     g_mat = LoadMaterialDefault();
     if (g_lit)
         g_mat.shader = g_shader;
+    g_frame = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
+    g_prev = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
+    g_blur_ready = g_frame.id != 0 && g_prev.id != 0;
 
     ParkourSnap from, to, view;
     memset(&from, 0, sizeof(from));
