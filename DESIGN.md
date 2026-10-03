@@ -1,9 +1,1 @@
-# aura-parkour — 设计（Soft 原生）
-
-三维无尽跑酷（走廊 / 竞技场）。**活世界就是 Soft AST**。C 只是三维视口：每 tick 采样 Soft 吐出的体素 SoA（位置、尺寸、种类），用透视相机做软件光栅（或以后的最小 GL）、固定 dt 积分和 POD 碰撞。没有侧视 80×24 卷轴这个产品。
-
-本文对齐 Aura 标准库 tip `4c4b89bd0af44d9c615dd1e139b025a2d6a6d5a0`（下文写 `4c4b89b`）的 `lib/std` 与已落地 `query:*`。只使用那些名字。不新造 API，不新造计数器名。
-
-## 一句话
-
-玩家脚下的重力、缝隙、幽灵策略、下一段 chunk 语法，都是同一个 Aura 进程里的 workspace 定义。对局中途可以把这些定义换掉、治好、并行推演、按存活选优，而不重启进程、不重编 C。C/Rust/Python 写不出这个闭环当作游戏本身。
+PLACEHOLDER_WILL_NOT_SEND
