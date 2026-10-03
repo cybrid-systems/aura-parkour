@@ -1,0 +1,124 @@
+; DeepSeek proposes a chunk-grammar body (a string). Soft gates it and, only
+; then, hot-strategy:swap!. Score / alive / tick stay Soft-owned; this file
+; never writes them. stdout is not used — the play SNAP pipe must stay clean.
+(require "std/string" all:)
+(require "std/process" all:)
+
+(define *propose-once* 0)
+(define *propose-path* "/tmp/parkour-proposed-chunk.body")
+
+(define (nonempty? s)
+  (and (string? s) (> (string-length s) 0)))
+
+(define (parkour:deepseek-wanted?)
+  (or (nonempty? (getenv "DEEPSEEK_API_KEY"))
+      (nonempty? (getenv "DEEPSEEK_API_KEY_FILE"))
+      (equal? (getenv "PARKOUR_PROPOSE") "1")))
+
+(define (parkour:bad-chunk-text? s)
+  (or (string-contains? s "set!")
+      (string-contains? s "*score*")
+      (string-contains? s "score")
+      (string-contains? s "display")
+      (string-contains? s "shell")
+      (string-contains? s "http")
+      (string-contains? s "set-code")
+      (string-contains? s "mutate:")
+      (string-contains? s "eval")
+      (string-contains? s "load ")
+      (string-contains? s "require")
+      (string-contains? s "write-file")
+      (string-contains? s "read-file")
+      (string-contains? s "command-output")))
+
+(define (parkour:chunk-body-ok? body)
+  (and (string? body)
+       (> (string-length body) 40)
+       (< (string-length body) 2000)
+       (string-prefix? body "(lambda")
+       (string-contains? body "origin")
+       (string-contains? body "list")
+       (not (parkour:bad-chunk-text? body))))
+
+(define (safe-len xs n)
+  (if (> n 12) -1
+      (if (null? xs) n
+          (if (not (pair? xs)) -1
+              (safe-len (cdr xs) (+ n 1))))))
+
+(define (parkour:row-ok? ob)
+  (if (not (pair? ob)) #f
+      (let ((n (safe-len ob 0)))
+        (if (not (= n 8)) #f
+            (let ((k (nth ob 0))
+                  (w (nth ob 4))
+                  (h (nth ob 5))
+                  (d (nth ob 6))
+                  (fl (nth ob 7)))
+              (and (number? k) (number? (nth ob 1)) (number? (nth ob 2))
+                   (number? (nth ob 3)) (number? w) (number? h) (number? d)
+                   (number? fl)
+                   (>= k 0) (<= k 4)
+                   (> w 0) (> h 0) (> d 0)
+                   (or (= fl 0) (= fl 1))))))))
+
+(define (parkour:obs-ok? xs)
+  (if (null? xs) #t
+      (if (not (pair? xs)) #f
+          (and (parkour:row-ok? (car xs))
+               (parkour:obs-ok? (cdr xs))))))
+
+(define (parkour:probe-chunk! origin)
+  (let ((ch (try (chunk-grammar origin) (catch (e) #f))))
+    (and (pair? ch)
+         (number? (car ch))
+         (> (car ch) origin)
+         (< (car ch) (+ origin 40))
+         (pair? (cdr ch))
+         (parkour:obs-ok? (nth ch 1))
+         (>= (safe-len (nth ch 1) 0) 1)
+         (<= (safe-len (nth ch 1) 0) 8))))
+
+; Gate, swap, probe. On a bad live chunk, heal back to the pre-swap grammar.
+; Does not touch *score* / *alive* / *tick*.
+(define (parkour:apply-chunk-proposal! body)
+  (let ((clean (if (string? body) (string-trim body) "")))
+    (if (not (parkour:chunk-body-ok? clean))
+        (list #f "gate")
+        (begin
+          (arm! "chunk-grammar" *chunk-body*)
+          (let ((sw (hot-strategy:swap! "chunk-grammar" clean "deepseek-objects")))
+            (if (not (and (pair? sw) (equal? (car sw) #t)))
+                (list #f "swap")
+                (if (and (parkour:probe-chunk! 0) (parkour:probe-chunk! 16))
+                    (begin
+                      (set! *chunk-body* clean)
+                      ; Rebuild upcoming geometry from the swapped grammar.
+                      ; Player score and position stay as Soft left them.
+                      (set! *obs* '())
+                      (set! *gen-x* (+ *x* 8))
+                      (ensure!)
+                      (list #t "swap"))
+                    (begin
+                      (parkour:heal!)
+                      (list #f "probe")))))))))
+
+(define (parkour:run-proposer!)
+  (sh (string-append
+        "python3 /workspace/aura-parkour/scripts/propose_objects.py "
+        *propose-path*)))
+
+(define (parkour:maybe-propose!)
+  (if (= *propose-once* 1)
+      (list #f "once")
+      (begin
+        (set! *propose-once* 1)
+        (if (not (parkour:deepseek-wanted?))
+            (list #f "off")
+            (let ((code (try (parkour:run-proposer!) (catch (e) 1))))
+              (if (not (and (number? code) (= code 0)))
+                  (list #f "proposer")
+                  (let ((body (read-file *propose-path*)))
+                    (if (not (string? body))
+                        (list #f "read")
+                        (parkour:apply-chunk-proposal! body)))))))))
