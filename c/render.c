@@ -8,11 +8,11 @@
    Floor, ceiling, side walls, lane guides, and the runner silhouette are
    camera presentation only — they are not obstacles and never affect score. */
 
-enum { COLS = 100, ROWS = 36 };
+enum { COLS = 100, ROWS = 36, VROWS = 72 }; /* two samples per cell */
 
 /* Terminal cells are ~2x taller than wide, so vertical scale is 2x. */
 static const double CELL_Z = 0.0305;
-static const double CELL_Y = 0.0610;
+static const double CELL_Y = 0.0305; /* one vertical sample; pairs become one cell */
 
 enum {
     FACE_NONE = -1,
@@ -113,7 +113,7 @@ static int project(const Cam *c, double x, double y, double z, int *su, int *sv,
     if (zc < 0.20)
         return 0;
     *su = (int)((COLS / 2.0) + (xc / zc) / CELL_Z);
-    *sv = (int)((ROWS / 2.0) - (yc / zc) / CELL_Y);
+    *sv = (int)((VROWS / 2.0) - (yc / zc) / CELL_Y);
     *depth = zc;
     return 1;
 }
@@ -415,7 +415,7 @@ static void shade_box(int kind, int face, int rim, int tick, double t, Cell *cel
 }
 
 static void sky_at(int row, Cell *cell) {
-    double u = (double)row / (double)(ROWS - 1);
+    double u = (double)row / (double)(VROWS - 1);
     int R = (int)(18 + 92.0 * u);
     int G = (int)(36 + 70.0 * u);
     int B = (int)(120 - 28.0 * u);
@@ -425,7 +425,7 @@ static void sky_at(int row, Cell *cell) {
 static void trace_cell(const ParkourSnap *s, const Cam *cam, int col, int row,
                       Cell *cell, double *zout) {
     double ndc_x = ((double)col - (COLS / 2.0) + 0.5) * CELL_Z;
-    double ndc_y = ((ROWS / 2.0) - (double)row - 0.5) * CELL_Y;
+    double ndc_y = ((VROWS / 2.0) - (double)row - 0.5) * CELL_Y;
     double dx = cam->fx + cam->ux * ndc_y + cam->rx * ndc_x;
     double dy = cam->fy + cam->uy * ndc_y + cam->ry * ndc_x;
     double dz = cam->fz + cam->uz * ndc_y + cam->rz * ndc_x;
@@ -527,7 +527,7 @@ static void stamp_disc(Cell grid[][COLS], double zbuf[][COLS], int cr, int cc,
                        int rad_r, int rad_c, double depth, char ch, int R, int G,
                        int B) {
     for (int r = cr - rad_r; r <= cr + rad_r; r++) {
-        if (r < 0 || r >= ROWS)
+        if (r < 0 || r >= VROWS)
             continue;
         for (int c = cc - rad_c; c <= cc + rad_c; c++) {
             if (c < 0 || c >= COLS)
@@ -585,7 +585,7 @@ static void stamp_runner(Cell grid[][COLS], double zbuf[][COLS], const ParkourSn
     int jacket_g = s->state == 3 ? 40 : 168;
     int jacket_b = s->state == 3 ? 48 : 214;
     for (int r = top; r <= bot; r++) {
-        if (r < 1 || r >= ROWS - 1)
+        if (r < 1 || r >= VROWS - 1)
             continue;
         double u = (bot == top) ? 0.0 : (double)(r - top) / (double)(bot - top);
         int w = half_w;
@@ -621,7 +621,7 @@ static void stamp_text(Cell grid[][COLS], int row, const char *text, int R, int 
                        int B) {
     int len = (int)strlen(text);
     int c0 = (COLS - len) / 2;
-    if (row < 0 || row >= ROWS)
+    if (row < 0 || row >= VROWS)
         return;
     for (int i = 0; i < len; i++) {
         int c = c0 + i;
@@ -636,9 +636,9 @@ static void stamp_text(Cell grid[][COLS], int row, const char *text, int R, int 
 }
 
 static void outline_pass(Cell grid[][COLS], double zbuf[][COLS]) {
-    Cell copy[ROWS][COLS];
+    Cell copy[VROWS][COLS];
     memcpy(copy, grid, sizeof(copy));
-    for (int r = 1; r < ROWS - 1; r++) {
+    for (int r = 1; r < VROWS - 1; r++) {
         for (int c = 1; c < COLS - 1; c++) {
             double z = zbuf[r][c];
             if (z > 1.0e8)
@@ -667,30 +667,46 @@ static int emit_frame(char *dst, size_t dst_n, Cell grid[][COLS]) {
     char *p = dst;
     char *end = dst + dst_n;
     int lr = -1, lg = -1, lb = -1, lbr = -1, lbg = -1, lbb = -1;
+    /* Upper sample is foreground, lower sample is background, glyph is ▀. */
+    static const char half[3] = {(char)0xE2, (char)0x96, (char)0x80};
     for (int r = 0; r < ROWS; r++) {
         lr = -1;
         for (int c = 0; c < COLS; c++) {
-            const Cell *cell = &grid[r][c];
-            if (cell->fr != lr || cell->fg != lg || cell->fb != lb || cell->br != lbr ||
-                cell->bg != lbg || cell->bb != lbb) {
+            const Cell *top = &grid[r * 2][c];
+            const Cell *bot = &grid[r * 2 + 1][c];
+            int fr = top->fr, fg = top->fg, fb = top->fb;
+            int br = bot->br, bg = bot->bg, bb = bot->bb;
+            char glyph[3];
+            int glen = 3;
+            glyph[0] = half[0];
+            glyph[1] = half[1];
+            glyph[2] = half[2];
+            if (top->ch != ' ') {
+                glyph[0] = top->ch;
+                glen = 1;
+                br = 12;
+                bg = 8;
+                bb = 16;
+            }
+            if (fr != lr || fg != lg || fb != lb || br != lbr || bg != lbg || bb != lbb) {
                 char seq[64];
                 int n = snprintf(seq, sizeof(seq),
-                                 "\033[38;2;%u;%u;%u;48;2;%u;%u;%um", cell->fr, cell->fg,
-                                 cell->fb, cell->br, cell->bg, cell->bb);
+                                 "\033[38;2;%d;%d;%d;48;2;%d;%d;%dm", fr, fg, fb, br, bg, bb);
                 if (n < 0 || p + n >= end)
                     return -1;
                 memcpy(p, seq, (size_t)n);
                 p += n;
-                lr = cell->fr;
-                lg = cell->fg;
-                lb = cell->fb;
-                lbr = cell->br;
-                lbg = cell->bg;
-                lbb = cell->bb;
+                lr = fr;
+                lg = fg;
+                lb = fb;
+                lbr = br;
+                lbg = bg;
+                lbb = bb;
             }
-            if (p + 1 >= end)
+            if (p + glen >= end)
                 return -1;
-            *p++ = cell->ch;
+            memcpy(p, glyph, (size_t)glen);
+            p += glen;
         }
         if (p + 5 >= end)
             return -1;
@@ -708,26 +724,26 @@ int parkour_render(const ParkourSnap *s, char *dst, size_t dst_n) {
         return -1;
     Cam cam;
     cam_build(s, &cam);
-    Cell grid[ROWS][COLS];
-    double zbuf[ROWS][COLS];
-    for (int r = 0; r < ROWS; r++) {
+    Cell grid[VROWS][COLS];
+    double zbuf[VROWS][COLS];
+    for (int r = 0; r < VROWS; r++) {
         for (int c = 0; c < COLS; c++) {
             sky_at(r, &grid[r][c]);
             zbuf[r][c] = 1.0e9;
         }
     }
-    for (int r = 0; r < ROWS; r++) {
+    for (int r = 0; r < VROWS; r++) {
         for (int c = 0; c < COLS; c++)
             trace_cell(s, &cam, c, r, &grid[r][c], &zbuf[r][c]);
     }
     outline_pass(grid, zbuf);
     stamp_runner(grid, zbuf, s, &cam);
     if (s->alive == 0 || s->state == 3) {
-        stamp_text(grid, ROWS / 2 - 1, "DEAD", 255, 64, 64);
-        stamp_text(grid, ROWS / 2 + 1, "r restart    q quit", 255, 220, 220);
+        stamp_text(grid, VROWS / 2 - 2, "DEAD", 255, 64, 64);
+        stamp_text(grid, VROWS / 2 + 2, "r restart    q quit", 255, 220, 220);
     } else if (s->state == 2) {
         /* Visor band: the crouch reads even before the next obstacle. */
-        for (int r = 0; r < 3; r++) {
+        for (int r = 0; r < 6; r++) {
             for (int c = 0; c < COLS; c++) {
                 grid[r][c].fr = (unsigned char)(grid[r][c].fr / 5);
                 grid[r][c].fg = (unsigned char)(grid[r][c].fg / 5);
