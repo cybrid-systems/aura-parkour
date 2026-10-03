@@ -33,10 +33,12 @@ static const char *VS = "#version 330\n"
                          "uniform mat4 matNormal;\n"
                          "out vec3 fragPosition;\n"
                          "out vec3 fragNormal;\n"
+                         "out vec2 fragTexCoord;\n"
                          "out vec4 fragColor;\n"
                          "void main() {\n"
                          "  fragPosition = vec3(matModel * vec4(vertexPosition, 1.0));\n"
                          "  fragNormal = normalize(vec3(matNormal * vec4(vertexNormal, 1.0)));\n"
+                         "  fragTexCoord = vertexTexCoord;\n"
                          "  fragColor = vertexColor;\n"
                          "  gl_Position = mvp * vec4(vertexPosition, 1.0);\n"
                          "}\n";
@@ -44,20 +46,25 @@ static const char *VS = "#version 330\n"
 static const char *FS = "#version 330\n"
                          "in vec3 fragPosition;\n"
                          "in vec3 fragNormal;\n"
+                         "in vec2 fragTexCoord;\n"
                          "in vec4 fragColor;\n"
+                         "uniform sampler2D texture0;\n"
                          "uniform vec4 colDiffuse;\n"
                          "uniform vec3 viewPos;\n"
                          "out vec4 finalColor;\n"
                          "void main() {\n"
                          "  vec3 n = normalize(fragNormal);\n"
-                         "  vec3 toLight = normalize(vec3(-0.35, 0.9, 0.2));\n"
-                         "  float diff = max(dot(n, toLight), 0.0);\n"
-                         "  float amb = 0.34;\n"
-                         "  vec3 base = colDiffuse.rgb * fragColor.rgb;\n"
-                         "  vec3 lit = base * (amb + diff * 0.9);\n"
+                         "  vec3 sun = normalize(vec3(-0.65, 0.42, 0.18));\n"
+                         "  float diff = max(dot(n, sun), 0.0);\n"
+                         "  float rim = pow(1.0 - max(dot(n, normalize(viewPos - fragPosition)), 0.0), 2.0);\n"
+                         "  vec3 texel = texture(texture0, fragTexCoord).rgb;\n"
+                         "  vec3 base = colDiffuse.rgb * fragColor.rgb * texel;\n"
+                         "  vec3 sky = vec3(0.55, 0.28, 0.22);\n"
+                         "  vec3 warm = vec3(1.0, 0.62, 0.32);\n"
+                         "  vec3 lit = base * (sky * 0.42 + warm * diff) + warm * rim * 0.08;\n"
                          "  float dist = length(viewPos - fragPosition);\n"
-                         "  float fog = clamp((dist - 6.0) / 34.0, 0.0, 1.0);\n"
-                         "  vec3 fogCol = vec3(0.05, 0.07, 0.13);\n"
+                         "  float fog = clamp((dist - 5.0) / 28.0, 0.0, 1.0);\n"
+                         "  vec3 fogCol = vec3(0.62, 0.30, 0.22);\n"
                          "  lit = mix(lit, fogCol, fog);\n"
                          "  finalColor = vec4(lit, colDiffuse.a);\n"
                          "}\n";
@@ -79,6 +86,10 @@ static Material g_mat;
 static Shader g_shader;
 static int g_lit = 0;
 static int g_view_loc = -1;
+static Texture2D g_white;
+static Texture2D g_floor_tex;
+static Texture2D g_wall_tex;
+static Texture2D g_tex;
 
 static int write_all(int fd, const char *buf, size_t n) {
     size_t off = 0;
@@ -180,7 +191,47 @@ static int spawn_soft(char *const argv[], int *in_fd, int *out_fd, pid_t *pid) {
     return 0;
 }
 
+
+static Texture2D finish_tex(Image img) {
+    Texture2D tex = LoadTextureFromImage(img);
+    UnloadImage(img);
+    SetTextureFilter(tex, TEXTURE_FILTER_BILINEAR);
+    return tex;
+}
+
+static Texture2D make_white(void) {
+    Image img = GenImageColor(2, 2, WHITE);
+    return finish_tex(img);
+}
+
+static Texture2D make_floor(void) {
+    Image img = GenImageColor(128, 128, (Color){48, 38, 30, 255});
+    for (int gy = 0; gy < 4; gy++) {
+        for (int gx = 0; gx < 4; gx++) {
+            Color tile = ((gx + gy) & 1) ? (Color){148, 122, 90, 255} : (Color){96, 78, 58, 255};
+            ImageDrawRectangle(&img, gx * 32 + 2, gy * 32 + 2, 28, 28, tile);
+            ImageDrawRectangle(&img, gx * 32 + 6, gy * 32 + 8, 8, 3, (Color){170, 146, 110, 255});
+        }
+    }
+    return finish_tex(img);
+}
+
+static Texture2D make_wall(void) {
+    Image img = GenImageColor(128, 64, (Color){62, 42, 36, 255});
+    for (int row = 0; row < 4; row++) {
+        int off = (row & 1) ? 16 : 0;
+        for (int bx = -1; bx < 5; bx++) {
+            Color brick = (row & 1) ? (Color){168, 92, 64, 255} : (Color){142, 74, 54, 255};
+            ImageDrawRectangle(&img, bx * 32 + off + 1, row * 16 + 1, 30, 14, brick);
+            ImageDrawRectangle(&img, bx * 32 + off + 4, row * 16 + 3, 8, 3, (Color){190, 120, 88, 255});
+        }
+    }
+    return finish_tex(img);
+}
+
 static void draw_mesh(Vector3 center, Vector3 size, Color color) {
+    if (g_tex.id > 0)
+        g_mat.maps[MATERIAL_MAP_DIFFUSE].texture = g_tex;
     g_mat.maps[MATERIAL_MAP_DIFFUSE].color = color;
     Matrix xform = MatrixMultiply(MatrixTranslate(center.x, center.y, center.z),
                                   MatrixScale(size.x, size.y, size.z));
@@ -191,6 +242,8 @@ static void draw_mesh(Vector3 center, Vector3 size, Color color) {
 }
 
 static void draw_sphere(Vector3 center, float radius, Color color) {
+    if (g_tex.id > 0)
+        g_mat.maps[MATERIAL_MAP_DIFFUSE].texture = g_tex;
     g_mat.maps[MATERIAL_MAP_DIFFUSE].color = color;
     Matrix xform = MatrixMultiply(MatrixTranslate(center.x, center.y, center.z),
                                   MatrixScale(radius, radius, radius));
@@ -215,24 +268,27 @@ static int gap_here(const ParkourSnap *s, float x, float z) {
 static void draw_corridor(const ParkourSnap *s) {
     int x0 = (int)s->x - 4;
     int x1 = (int)s->x + 42;
+    g_tex = g_floor_tex.id > 0 ? g_floor_tex : g_white;
     for (int x = x0; x < x1; x += 2) {
         for (int lane = -2; lane <= 2; lane += 2) {
             float cx = (float)x + 1.0f;
             float cz = (float)lane;
             if (gap_here(s, cx, cz))
                 continue;
-            int checker = ((x / 2) + (lane / 2)) & 1;
-            Color c = checker ? (Color){78, 94, 112, 255} : (Color){46, 56, 72, 255};
-            draw_mesh((Vector3){cx, -0.08f, cz}, (Vector3){2.0f, 0.16f, 1.85f}, c);
+            draw_mesh((Vector3){cx, -0.08f, cz}, (Vector3){2.0f, 0.16f, 1.85f}, WHITE);
         }
-        Color wall = {36, 44, 66, 255};
-        Color trim = {88, 108, 146, 255};
-        float wx = (float)x + 1.0f;
-        draw_mesh((Vector3){wx, 2.1f, -4.55f}, (Vector3){2.0f, 4.2f, 0.35f}, wall);
-        draw_mesh((Vector3){wx, 2.1f, 4.55f}, (Vector3){2.0f, 4.2f, 0.35f}, wall);
-        draw_mesh((Vector3){wx, 4.05f, -4.55f}, (Vector3){2.0f, 0.18f, 0.42f}, trim);
-        draw_mesh((Vector3){wx, 4.05f, 4.55f}, (Vector3){2.0f, 0.18f, 0.42f}, trim);
     }
+    g_tex = g_wall_tex.id > 0 ? g_wall_tex : g_white;
+    for (int x = x0; x < x1; x += 2) {
+        float wx = (float)x + 1.0f;
+        draw_mesh((Vector3){wx, 2.1f, -4.55f}, (Vector3){2.0f, 4.2f, 0.35f}, WHITE);
+        draw_mesh((Vector3){wx, 2.1f, 4.55f}, (Vector3){2.0f, 4.2f, 0.35f}, WHITE);
+        draw_mesh((Vector3){wx, 4.15f, -4.55f}, (Vector3){2.0f, 0.16f, 0.42f},
+                  (Color){210, 170, 130, 255});
+        draw_mesh((Vector3){wx, 4.15f, 4.55f}, (Vector3){2.0f, 0.16f, 0.42f},
+                  (Color){210, 170, 130, 255});
+    }
+    g_tex = g_white;
     for (int i = 0; i < s->nobs; i++) {
         const ParkourObs *o = &s->obs[i];
         if (o->kind == 0)
@@ -431,7 +487,7 @@ static void paint(const ParkourSnap *s, int paused, int burst) {
         SetShaderValue(g_shader, g_view_loc, view, SHADER_UNIFORM_VEC3);
     }
     BeginDrawing();
-    ClearBackground((Color){10, 14, 26, 255});
+    ClearBackground((Color){92, 42, 36, 255});
     BeginMode3D(chase_cam(s));
     if (g_lit)
         BeginShaderMode(g_shader);
@@ -608,7 +664,12 @@ int main(int argc, char **argv) {
         g_shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(g_shader, "colDiffuse");
         g_view_loc = GetShaderLocation(g_shader, "viewPos");
         g_shader.locs[SHADER_LOC_VECTOR_VIEW] = g_view_loc;
+        g_shader.locs[SHADER_LOC_MAP_DIFFUSE] = GetShaderLocation(g_shader, "texture0");
     }
+    g_white = make_white();
+    g_floor_tex = make_floor();
+    g_wall_tex = make_wall();
+    g_tex = g_white;
     g_cube = GenMeshCube(1.0f, 1.0f, 1.0f);
     g_sphere = GenMeshSphere(1.0f, 16, 12);
     g_mat = LoadMaterialDefault();
@@ -728,6 +789,9 @@ int main(int argc, char **argv) {
     char bye[32];
     int n = snprintf(bye, sizeof(bye), "INPUT 0 0 0 1 0\n");
     write_all(soft_in, bye, (size_t)n);
+    UnloadTexture(g_floor_tex);
+    UnloadTexture(g_wall_tex);
+    UnloadTexture(g_white);
     if (g_lit)
         UnloadShader(g_shader);
     UnloadMesh(g_cube);
